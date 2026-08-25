@@ -11,7 +11,7 @@
     "foundation": "profile-j-foundation.json",
     "runtime": "profile-j-runtime.json"
   },
-  "applicationDeploymentHelper": "private-one-deploy.mjs",
+  "applicationDeploymentHelper": "azure-one-deploy.mjs",
   "applicationArtifacts": {
     "jobsFunctions": {
       "version": "0.1.0-preview.1",

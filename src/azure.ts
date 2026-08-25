@@ -1161,9 +1161,9 @@ async function applyConfig(
     "--expected-caller-client-id",
     callerClientId,
     "--execute",
-    "private-one-deploy",
+    "azure-one-deploy",
   ]);
-  if (!deployResult.startsWith("Private One Deploy completed;"))
+  if (!deployResult.startsWith("Azure One Deploy completed;"))
     throw new CliError(
       "APPLICATION_DEPLOY_FAILED",
       "Azure-owned application helper returned an unexpected result",
