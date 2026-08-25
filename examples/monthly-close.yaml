@@ -1,0 +1,7 @@
+outcome: workbook.to-governed-dataset
+source:
+  connection: finance
+  path: monthly-close.xlsx
+destination:
+  connection: governed
+  path: monthly-close/

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.ingestron.io/cli/config/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "target",
+    "integration",
+    "bundle"
+  ],
+  "properties": {
+    "apiVersion": { "const": "ingestron.cli/v1" },
+    "kind": { "const": "AdfInstallation" },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,62}$" }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["factoryResourceId"],
+      "properties": { "factoryResourceId": { "type": "string" } }
+    },
+    "integration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["endpoint", "audience", "pipelineName"],
+      "properties": {
+        "endpoint": { "type": "string", "format": "uri" },
+        "audience": { "type": "string" },
+        "pipelineName": { "type": "string" }
+      }
+    },
+    "bundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version"],
+      "properties": {
+        "version": { "type": "string" },
+        "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    }
+  }
+}

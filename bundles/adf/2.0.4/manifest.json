@@ -1,0 +1,31 @@
+{
+  "contract": "ingestron.adf-bundle/v1",
+  "version": "2.0.4",
+  "sourceRepository": "intentlabs-dev/ingestron-cli",
+  "compatibility": {
+    "cli": ">=0.2.2-private.0 <0.3.0",
+    "jobContract": "ingestron.job-intent/v1",
+    "contractsVersion": "2.3.0"
+  },
+  "profiles": {
+    "hosted-registered-storage": {
+      "template": "direct-template.json",
+      "templateDigest": "sha256:0bf4844f2ab21f9280449ed2a906a9c6343652cc03375375f465f4c3afe2d642",
+      "ownedResourceTypes": ["Microsoft.DataFactory/factories/pipelines"]
+    },
+    "customer-managed": {
+      "template": "direct-template.json",
+      "templateDigest": "sha256:0bf4844f2ab21f9280449ed2a906a9c6343652cc03375375f465f4c3afe2d642",
+      "ownedResourceTypes": ["Microsoft.DataFactory/factories/pipelines"]
+    },
+    "hosted-transient": {
+      "template": "transient-template.json",
+      "templateDigest": "sha256:68c4ea7be80916b4f59f0728cc9f3c19fcb56459974623edd6c6f71ef91ecff0",
+      "ownedResourceTypes": [
+        "Microsoft.DataFactory/factories/pipelines",
+        "Microsoft.DataFactory/factories/linkedservices",
+        "Microsoft.DataFactory/factories/datasets"
+      ]
+    }
+  }
+}

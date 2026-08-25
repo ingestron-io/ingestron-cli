@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.ingestron.io/cli/lock/v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "installation",
+    "target",
+    "bundle",
+    "profile",
+    "recipeDigest",
+    "ownedResources"
+  ],
+  "properties": {
+    "apiVersion": { "const": "ingestron.cli-lock/v2" },
+    "installation": { "type": "string" },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["factoryResourceId"],
+      "properties": { "factoryResourceId": { "type": "string" } }
+    },
+    "bundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "digest"],
+      "properties": {
+        "version": { "type": "string" },
+        "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "profile": {
+      "enum": [
+        "hosted-transient",
+        "hosted-registered-storage",
+        "customer-managed"
+      ]
+    },
+    "recipeDigest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "ownedResources": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^/subscriptions/" }
+    }
+  }
+}

@@ -1,0 +1,655 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "2.0.4.0",
+  "parameters": {
+    "factoryName": { "type": "string" },
+    "pipelineName": { "type": "string" },
+    "endpoint": { "type": "string" },
+    "audience": { "type": "string" },
+    "sourceLinkedService": { "type": "string" },
+    "sourceStore": { "type": "string" },
+    "sourceNamespace": { "type": "string" },
+    "sourceFolder": { "type": "string" },
+    "sourceFile": { "type": "string" },
+    "destinationLinkedService": { "type": "string" },
+    "destinationStore": { "type": "string" },
+    "destinationNamespace": { "type": "string" },
+    "destinationPath": { "type": "string" },
+    "transferLinkedServiceName": { "type": "string" },
+    "sourceDatasetName": { "type": "string" },
+    "destinationDatasetName": { "type": "string" },
+    "transferDatasetName": { "type": "string" }
+  },
+  "variables": {
+    "sourceAzureBlobStorageLocation": {
+      "type": "AzureBlobStorageLocation",
+      "container": "[parameters('sourceNamespace')]",
+      "folderPath": "[parameters('sourceFolder')]",
+      "fileName": "[parameters('sourceFile')]"
+    },
+    "sourceAzureBlobFSLocation": {
+      "type": "AzureBlobFSLocation",
+      "fileSystem": "[parameters('sourceNamespace')]",
+      "folderPath": "[parameters('sourceFolder')]",
+      "fileName": "[parameters('sourceFile')]"
+    },
+    "destinationAzureBlobStorageLocation": {
+      "type": "AzureBlobStorageLocation",
+      "container": "[parameters('destinationNamespace')]",
+      "folderPath": { "value": "@dataset().folderPath", "type": "Expression" },
+      "fileName": { "value": "@dataset().fileName", "type": "Expression" }
+    },
+    "destinationAzureBlobFSLocation": {
+      "type": "AzureBlobFSLocation",
+      "fileSystem": "[parameters('destinationNamespace')]",
+      "folderPath": { "value": "@dataset().folderPath", "type": "Expression" },
+      "fileName": { "value": "@dataset().fileName", "type": "Expression" }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.DataFactory/factories/linkedservices",
+      "apiVersion": "2018-06-01",
+      "name": "[format('{0}/{1}', parameters('factoryName'), parameters('transferLinkedServiceName'))]",
+      "properties": {
+        "type": "AzureBlobStorage",
+        "parameters": { "sasUri": { "type": "SecureString" } },
+        "typeProperties": {
+          "sasUri": {
+            "type": "SecureString",
+            "value": "@{linkedService().sasUri}"
+          }
+        },
+        "annotations": ["ingestron-managed", "bundle:2.0.4"]
+      }
+    },
+    {
+      "type": "Microsoft.DataFactory/factories/datasets",
+      "apiVersion": "2018-06-01",
+      "name": "[format('{0}/{1}', parameters('factoryName'), parameters('sourceDatasetName'))]",
+      "properties": {
+        "type": "Binary",
+        "linkedServiceName": {
+          "referenceName": "[parameters('sourceLinkedService')]",
+          "type": "LinkedServiceReference"
+        },
+        "typeProperties": {
+          "location": "[if(equals(parameters('sourceStore'), 'AzureBlobFS'), variables('sourceAzureBlobFSLocation'), variables('sourceAzureBlobStorageLocation'))]"
+        },
+        "annotations": ["ingestron-managed", "bundle:2.0.4"]
+      }
+    },
+    {
+      "type": "Microsoft.DataFactory/factories/datasets",
+      "apiVersion": "2018-06-01",
+      "name": "[format('{0}/{1}', parameters('factoryName'), parameters('destinationDatasetName'))]",
+      "properties": {
+        "type": "Binary",
+        "linkedServiceName": {
+          "referenceName": "[parameters('destinationLinkedService')]",
+          "type": "LinkedServiceReference"
+        },
+        "parameters": {
+          "folderPath": { "type": "String" },
+          "fileName": { "type": "String" }
+        },
+        "typeProperties": {
+          "location": "[if(equals(parameters('destinationStore'), 'AzureBlobFS'), variables('destinationAzureBlobFSLocation'), variables('destinationAzureBlobStorageLocation'))]"
+        },
+        "annotations": ["ingestron-managed", "bundle:2.0.4"]
+      }
+    },
+    {
+      "type": "Microsoft.DataFactory/factories/datasets",
+      "apiVersion": "2018-06-01",
+      "name": "[format('{0}/{1}', parameters('factoryName'), parameters('transferDatasetName'))]",
+      "dependsOn": [
+        "[resourceId('Microsoft.DataFactory/factories/linkedservices', parameters('factoryName'), parameters('transferLinkedServiceName'))]"
+      ],
+      "properties": {
+        "type": "Binary",
+        "linkedServiceName": {
+          "referenceName": "[parameters('transferLinkedServiceName')]",
+          "type": "LinkedServiceReference",
+          "parameters": {
+            "sasUri": { "value": "@dataset().sasUri", "type": "Expression" }
+          }
+        },
+        "parameters": {
+          "sasUri": { "type": "String" },
+          "namespace": { "type": "String" },
+          "path": { "type": "String" },
+          "name": { "type": "String" }
+        },
+        "typeProperties": {
+          "location": {
+            "type": "AzureBlobStorageLocation",
+            "container": {
+              "value": "@dataset().namespace",
+              "type": "Expression"
+            },
+            "folderPath": { "value": "@dataset().path", "type": "Expression" },
+            "fileName": { "value": "@dataset().name", "type": "Expression" }
+          }
+        },
+        "annotations": ["ingestron-managed", "bundle:2.0.4"]
+      }
+    },
+    {
+      "type": "Microsoft.DataFactory/factories/pipelines",
+      "apiVersion": "2018-06-01",
+      "name": "[format('{0}/{1}', parameters('factoryName'), parameters('pipelineName'))]",
+      "dependsOn": [
+        "[resourceId('Microsoft.DataFactory/factories/datasets', parameters('factoryName'), parameters('sourceDatasetName'))]",
+        "[resourceId('Microsoft.DataFactory/factories/datasets', parameters('factoryName'), parameters('destinationDatasetName'))]",
+        "[resourceId('Microsoft.DataFactory/factories/datasets', parameters('factoryName'), parameters('transferDatasetName'))]"
+      ],
+      "properties": {
+        "description": "Ingestron-managed transient transfer pipeline. Object-scoped grants are consumed inside secure activities and customer outputs are copied home before deletion.",
+        "parameters": {
+          "ingestronEndpoint": {
+            "type": "String",
+            "defaultValue": "[parameters('endpoint')]"
+          },
+          "ingestronAudience": {
+            "type": "String",
+            "defaultValue": "[parameters('audience')]"
+          },
+          "destinationPath": {
+            "type": "String",
+            "defaultValue": "[parameters('destinationPath')]"
+          },
+          "pollSeconds": { "type": "Int", "defaultValue": 5 }
+        },
+        "variables": {
+          "jobState": { "type": "String", "defaultValue": "queued" }
+        },
+        "activities": [
+          {
+            "name": "Create object scoped upload",
+            "type": "WebActivity",
+            "dependsOn": [],
+            "policy": {
+              "timeout": "0.00:02:00",
+              "retry": 2,
+              "retryIntervalInSeconds": 10,
+              "secureInput": false,
+              "secureOutput": true
+            },
+            "typeProperties": {
+              "method": "POST",
+              "url": {
+                "value": "@concat(pipeline().parameters.ingestronEndpoint, '/v1/uploads')",
+                "type": "Expression"
+              },
+              "headers": { "Content-Type": "application/yaml" },
+              "body": {
+                "value": "mediaType: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "type": "Expression"
+              },
+              "authentication": {
+                "type": "MSI",
+                "resource": {
+                  "value": "@pipeline().parameters.ingestronAudience",
+                  "type": "Expression"
+                }
+              },
+              "turnOffAsync": true
+            }
+          },
+          {
+            "name": "Copy source to isolated upload",
+            "type": "Copy",
+            "dependsOn": [
+              {
+                "activity": "Create object scoped upload",
+                "dependencyConditions": ["Succeeded"]
+              }
+            ],
+            "policy": {
+              "timeout": "0.00:02:00",
+              "retry": 2,
+              "retryIntervalInSeconds": 10,
+              "secureInput": true,
+              "secureOutput": true
+            },
+            "inputs": [
+              {
+                "referenceName": "[parameters('sourceDatasetName')]",
+                "type": "DatasetReference"
+              }
+            ],
+            "outputs": [
+              {
+                "referenceName": "[parameters('transferDatasetName')]",
+                "type": "DatasetReference",
+                "parameters": {
+                  "sasUri": {
+                    "value": "@activity('Create object scoped upload').output.transfer.uri",
+                    "type": "Expression"
+                  },
+                  "namespace": {
+                    "value": "@activity('Create object scoped upload').output.transfer.location.namespace",
+                    "type": "Expression"
+                  },
+                  "path": {
+                    "value": "@activity('Create object scoped upload').output.transfer.location.path",
+                    "type": "Expression"
+                  },
+                  "name": {
+                    "value": "@activity('Create object scoped upload').output.transfer.location.name",
+                    "type": "Expression"
+                  }
+                }
+              }
+            ],
+            "typeProperties": {
+              "source": { "type": "BinarySource" },
+              "sink": { "type": "BinarySink" }
+            }
+          },
+          {
+            "name": "Complete verified upload",
+            "type": "WebActivity",
+            "dependsOn": [
+              {
+                "activity": "Copy source to isolated upload",
+                "dependencyConditions": ["Succeeded"]
+              }
+            ],
+            "policy": {
+              "timeout": "0.00:02:00",
+              "retry": 2,
+              "retryIntervalInSeconds": 10,
+              "secureInput": true,
+              "secureOutput": false
+            },
+            "typeProperties": {
+              "method": "POST",
+              "url": {
+                "value": "@concat(pipeline().parameters.ingestronEndpoint, '/v1/uploads/', activity('Create object scoped upload').output.uploadId, ':complete')",
+                "type": "Expression"
+              },
+              "headers": { "Content-Type": "application/yaml" },
+              "body": { "value": "{}", "type": "Expression" },
+              "authentication": {
+                "type": "MSI",
+                "resource": {
+                  "value": "@pipeline().parameters.ingestronAudience",
+                  "type": "Expression"
+                }
+              },
+              "turnOffAsync": true
+            }
+          },
+          {
+            "name": "Submit minimal hosted job",
+            "type": "WebActivity",
+            "dependsOn": [
+              {
+                "activity": "Complete verified upload",
+                "dependencyConditions": ["Succeeded"]
+              }
+            ],
+            "policy": {
+              "timeout": "0.00:02:00",
+              "retry": 2,
+              "retryIntervalInSeconds": 10,
+              "secureInput": true,
+              "secureOutput": true
+            },
+            "typeProperties": {
+              "method": "POST",
+              "url": {
+                "value": "@concat(pipeline().parameters.ingestronEndpoint, '/v1/jobs')",
+                "type": "Expression"
+              },
+              "headers": { "Content-Type": "application/json" },
+              "body": {
+                "value": "@concat('{\"outcome\":\"workbook.to-governed-dataset\",\"source\":{\"uploadId\":\"', activity('Create object scoped upload').output.uploadId, '\"}}')",
+                "type": "Expression"
+              },
+              "authentication": {
+                "type": "MSI",
+                "resource": {
+                  "value": "@pipeline().parameters.ingestronAudience",
+                  "type": "Expression"
+                }
+              },
+              "turnOffAsync": true
+            }
+          },
+          {
+            "name": "Poll hosted job",
+            "type": "Until",
+            "dependsOn": [
+              {
+                "activity": "Submit minimal hosted job",
+                "dependencyConditions": ["Succeeded"]
+              }
+            ],
+            "typeProperties": {
+              "expression": {
+                "value": "@contains(createArray('succeeded', 'review_required', 'failed', 'cancelled', 'expired'), variables('jobState'))",
+                "type": "Expression"
+              },
+              "timeout": "0.00:30:00",
+              "activities": [
+                {
+                  "name": "Wait before hosted status",
+                  "type": "Wait",
+                  "typeProperties": {
+                    "waitTimeInSeconds": {
+                      "value": "@pipeline().parameters.pollSeconds",
+                      "type": "Expression"
+                    }
+                  }
+                },
+                {
+                  "name": "Get hosted status",
+                  "type": "WebActivity",
+                  "dependsOn": [
+                    {
+                      "activity": "Wait before hosted status",
+                      "dependencyConditions": ["Succeeded"]
+                    }
+                  ],
+                  "policy": {
+                    "timeout": "0.00:02:00",
+                    "retry": 2,
+                    "retryIntervalInSeconds": 10,
+                    "secureInput": true,
+                    "secureOutput": true
+                  },
+                  "typeProperties": {
+                    "method": "GET",
+                    "url": {
+                      "value": "@concat(pipeline().parameters.ingestronEndpoint, '/v1/jobs/', activity('Submit minimal hosted job').output.jobId)",
+                      "type": "Expression"
+                    },
+                    "authentication": {
+                      "type": "MSI",
+                      "resource": {
+                        "value": "@pipeline().parameters.ingestronAudience",
+                        "type": "Expression"
+                      }
+                    },
+                    "turnOffAsync": true
+                  }
+                },
+                {
+                  "name": "Record hosted state",
+                  "type": "SetVariable",
+                  "dependsOn": [
+                    {
+                      "activity": "Get hosted status",
+                      "dependencyConditions": ["Succeeded"]
+                    }
+                  ],
+                  "typeProperties": {
+                    "variableName": "jobState",
+                    "value": {
+                      "value": "@activity('Get hosted status').output.state",
+                      "type": "Expression"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "name": "Require hosted job success",
+            "type": "IfCondition",
+            "dependsOn": [
+              {
+                "activity": "Poll hosted job",
+                "dependencyConditions": ["Succeeded"]
+              }
+            ],
+            "typeProperties": {
+              "expression": {
+                "value": "@contains(createArray('succeeded', 'review_required'), variables('jobState'))",
+                "type": "Expression"
+              },
+              "ifTrueActivities": [],
+              "ifFalseActivities": [
+                {
+                  "name": "Fail terminal Ingestron job",
+                  "type": "Fail",
+                  "typeProperties": {
+                    "message": {
+                      "value": "@concat('Ingestron job ended in terminal state: ', variables('jobState'))",
+                      "type": "Expression"
+                    },
+                    "errorCode": "INGESTRON_JOB_TERMINAL_FAILURE"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "name": "Issue manifest read grant",
+            "type": "WebActivity",
+            "dependsOn": [
+              {
+                "activity": "Require hosted job success",
+                "dependencyConditions": ["Succeeded"]
+              }
+            ],
+            "policy": {
+              "timeout": "0.00:02:00",
+              "retry": 2,
+              "retryIntervalInSeconds": 10,
+              "secureInput": true,
+              "secureOutput": true
+            },
+            "typeProperties": {
+              "method": "POST",
+              "url": {
+                "value": "@concat(pipeline().parameters.ingestronEndpoint, '/v1/jobs/', activity('Submit minimal hosted job').output.jobId, '/manifest:download')",
+                "type": "Expression"
+              },
+              "headers": { "Content-Type": "application/yaml" },
+              "body": { "value": "{}", "type": "Expression" },
+              "authentication": {
+                "type": "MSI",
+                "resource": {
+                  "value": "@pipeline().parameters.ingestronAudience",
+                  "type": "Expression"
+                }
+              },
+              "turnOffAsync": true
+            }
+          },
+          {
+            "name": "Copy governed manifest home",
+            "type": "Copy",
+            "dependsOn": [
+              {
+                "activity": "Issue manifest read grant",
+                "dependencyConditions": ["Succeeded"]
+              }
+            ],
+            "policy": {
+              "timeout": "0.00:02:00",
+              "retry": 2,
+              "retryIntervalInSeconds": 10,
+              "secureInput": true,
+              "secureOutput": true
+            },
+            "inputs": [
+              {
+                "referenceName": "[parameters('transferDatasetName')]",
+                "type": "DatasetReference",
+                "parameters": {
+                  "sasUri": {
+                    "value": "@activity('Issue manifest read grant').output.transfer.uri",
+                    "type": "Expression"
+                  },
+                  "namespace": {
+                    "value": "@activity('Issue manifest read grant').output.transfer.location.namespace",
+                    "type": "Expression"
+                  },
+                  "path": {
+                    "value": "@activity('Issue manifest read grant').output.transfer.location.path",
+                    "type": "Expression"
+                  },
+                  "name": {
+                    "value": "@activity('Issue manifest read grant').output.transfer.location.name",
+                    "type": "Expression"
+                  }
+                }
+              }
+            ],
+            "outputs": [
+              {
+                "referenceName": "[parameters('destinationDatasetName')]",
+                "type": "DatasetReference",
+                "parameters": {
+                  "folderPath": {
+                    "value": "@concat(pipeline().parameters.destinationPath, activity('Submit minimal hosted job').output.jobId)",
+                    "type": "Expression"
+                  },
+                  "fileName": "manifest.json"
+                }
+              }
+            ],
+            "typeProperties": {
+              "source": { "type": "BinarySource" },
+              "sink": { "type": "BinarySink" }
+            }
+          },
+          {
+            "name": "Issue accepted rows read grant",
+            "type": "WebActivity",
+            "dependsOn": [
+              {
+                "activity": "Copy governed manifest home",
+                "dependencyConditions": ["Succeeded"]
+              }
+            ],
+            "policy": {
+              "timeout": "0.00:02:00",
+              "retry": 2,
+              "retryIntervalInSeconds": 10,
+              "secureInput": true,
+              "secureOutput": true
+            },
+            "typeProperties": {
+              "method": "POST",
+              "url": {
+                "value": "@concat(pipeline().parameters.ingestronEndpoint, '/v1/jobs/', activity('Submit minimal hosted job').output.jobId, '/package/data/accepted.jsonl:download')",
+                "type": "Expression"
+              },
+              "headers": { "Content-Type": "application/yaml" },
+              "body": { "value": "{}", "type": "Expression" },
+              "authentication": {
+                "type": "MSI",
+                "resource": {
+                  "value": "@pipeline().parameters.ingestronAudience",
+                  "type": "Expression"
+                }
+              },
+              "turnOffAsync": true
+            }
+          },
+          {
+            "name": "Copy governed accepted rows home",
+            "type": "Copy",
+            "dependsOn": [
+              {
+                "activity": "Issue accepted rows read grant",
+                "dependencyConditions": ["Succeeded"]
+              }
+            ],
+            "policy": {
+              "timeout": "0.00:02:00",
+              "retry": 2,
+              "retryIntervalInSeconds": 10,
+              "secureInput": true,
+              "secureOutput": true
+            },
+            "inputs": [
+              {
+                "referenceName": "[parameters('transferDatasetName')]",
+                "type": "DatasetReference",
+                "parameters": {
+                  "sasUri": {
+                    "value": "@activity('Issue accepted rows read grant').output.transfer.uri",
+                    "type": "Expression"
+                  },
+                  "namespace": {
+                    "value": "@activity('Issue accepted rows read grant').output.transfer.location.namespace",
+                    "type": "Expression"
+                  },
+                  "path": {
+                    "value": "@activity('Issue accepted rows read grant').output.transfer.location.path",
+                    "type": "Expression"
+                  },
+                  "name": {
+                    "value": "@activity('Issue accepted rows read grant').output.transfer.location.name",
+                    "type": "Expression"
+                  }
+                }
+              }
+            ],
+            "outputs": [
+              {
+                "referenceName": "[parameters('destinationDatasetName')]",
+                "type": "DatasetReference",
+                "parameters": {
+                  "folderPath": {
+                    "value": "@concat(pipeline().parameters.destinationPath, activity('Submit minimal hosted job').output.jobId, '/data')",
+                    "type": "Expression"
+                  },
+                  "fileName": "accepted.jsonl"
+                }
+              }
+            ],
+            "typeProperties": {
+              "source": { "type": "BinarySource" },
+              "sink": { "type": "BinarySink" }
+            }
+          },
+          {
+            "name": "Delete hosted job payloads",
+            "type": "WebActivity",
+            "dependsOn": [
+              {
+                "activity": "Copy governed accepted rows home",
+                "dependencyConditions": ["Succeeded"]
+              }
+            ],
+            "policy": {
+              "timeout": "0.00:02:00",
+              "retry": 2,
+              "retryIntervalInSeconds": 10,
+              "secureInput": true,
+              "secureOutput": true
+            },
+            "typeProperties": {
+              "method": "DELETE",
+              "url": {
+                "value": "@concat(pipeline().parameters.ingestronEndpoint, '/v1/jobs/', activity('Submit minimal hosted job').output.jobId)",
+                "type": "Expression"
+              },
+              "authentication": {
+                "type": "MSI",
+                "resource": {
+                  "value": "@pipeline().parameters.ingestronAudience",
+                  "type": "Expression"
+                }
+              },
+              "turnOffAsync": true
+            }
+          }
+        ],
+        "annotations": [
+          "ingestron-managed",
+          "bundle:2.0.4",
+          "profile:hosted-transient"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,51 @@
+{
+  "name": "@ingestron/cli",
+  "version": "0.3.0-preview.1",
+  "private": true,
+  "license": "Apache-2.0",
+  "repository": "https://github.com/intentlabs-dev/ingestron-cli",
+  "type": "module",
+  "bin": {
+    "ingestron": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "bundles",
+    "schemas",
+    "docs",
+    "examples",
+    "README.md",
+    "SECURITY.md",
+    "LICENSE",
+    "NOTICE",
+    "THIRD_PARTY_NOTICES.md",
+    "LICENSING.md",
+    "LICENSE-RUNTIME-PREVIEW.md"
+  ],
+  "packageManager": "pnpm@10.15.0",
+  "engines": {
+    "node": "22.x"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "bundle:build": "node scripts/build-adf-bundles.mjs",
+    "bundle:azure:import": "node scripts/import-azure-bundles.mjs",
+    "release:candidate": "pnpm bundle:build && pnpm build && node scripts/build-release.mjs",
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "secrets:check": "node scripts/scan-secrets.mjs",
+    "validate": "pnpm bundle:build && pnpm format:check && pnpm typecheck && pnpm test && pnpm build && pnpm release:candidate && pnpm secrets:check"
+  },
+  "dependencies": {
+    "yaml": "2.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.18.1",
+    "prettier": "3.6.2",
+    "tsx": "4.20.5",
+    "typescript": "5.9.2"
+  }
+}

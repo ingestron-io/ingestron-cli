@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.ingestron.io/cli/ingestron-azure-lock-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "installation",
+    "state",
+    "target",
+    "profile",
+    "configDigest",
+    "bundle",
+    "ownedResourceGroupId",
+    "ownedResources",
+    "directoryObjects",
+    "history"
+  ],
+  "properties": {
+    "apiVersion": { "const": "ingestron.azure-lock/v1" },
+    "installation": { "type": "string" },
+    "state": { "enum": ["installing", "installed", "removed"] },
+    "target": { "type": "object" },
+    "profile": { "type": "object" },
+    "configDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "bundle": { "type": "object" },
+    "integration": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "ownedResourceGroupId": { "type": "string", "pattern": "^/subscriptions/" },
+    "ownedResources": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^/subscriptions/" }
+    },
+    "directoryObjects": { "type": "array", "maxItems": 0 },
+    "history": { "type": "array", "maxItems": 2 }
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.ingestron.io/cli/lock/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "installation",
+    "target",
+    "bundle",
+    "ownedResources"
+  ],
+  "properties": {
+    "apiVersion": { "const": "ingestron.cli-lock/v1" },
+    "installation": { "type": "string" },
+    "target": { "type": "object" },
+    "bundle": { "type": "object" },
+    "ownedResources": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string" }
+    }
+  }
+}

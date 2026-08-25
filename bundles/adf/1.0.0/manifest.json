@@ -1,0 +1,13 @@
+{
+  "contract": "ingestron.adf-bundle/v1",
+  "version": "1.0.0",
+  "sourceRepository": "intentlabs-dev/ingestron-cli",
+  "template": "template.json",
+  "templateDigest": "sha256:b3b2fe7e7a0b7f962736b1890bd293741b542f73d6e69b5fbe4df4950be50fc5",
+  "compatibility": {
+    "cli": ">=0.1.0-private.0 <0.2.0",
+    "jobContract": "ingestron.job/v1",
+    "mode": "hosted-registered-storage"
+  },
+  "ownedResourceTypes": ["Microsoft.DataFactory/factories/pipelines"]
+}

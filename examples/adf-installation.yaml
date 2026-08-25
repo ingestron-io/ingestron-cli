@@ -1,0 +1,29 @@
+apiVersion: ingestron.cli/v2
+kind: AdfInstallation
+metadata:
+  name: monthly-close
+target:
+  factoryResourceId: /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/example-rg/providers/Microsoft.DataFactory/factories/example-adf
+profile: hosted-transient
+recipe:
+  path: monthly-close.yaml
+connections:
+  finance:
+    linkedService: finance-landing
+    store: AzureBlobStorage
+    account: examplelanding
+    namespace: finance
+    capability: read
+  governed:
+    linkedService: governed-lake
+    store: AzureBlobFS
+    account: examplegoverned
+    namespace: governed
+    capability: write
+integration:
+  endpoint: https://api.ingestron.io
+  audience: api://b7144c86-df2a-4e24-a1fa-8b6d995a95d2
+  pipelineName: monthly_close_hosted_transient_v1
+bundle:
+  version: 2.0.4
+  digest: sha256:026867cb69c2e52a18e74f4cf9e60eeec81fe0971ddace6db7f7d3a82d6dcc2a

@@ -1,0 +1,115 @@
+{
+  "applicationArtifacts": {
+    "jobsFunctions": {
+      "downloadUrl": "https://github.com/intentlabs-dev/ingestron-azure/releases/download/v0.4.0-preview.1/ingestron-jobs-0.1.0-preview.1-cd28333435a4.zip",
+      "fileName": "ingestron-jobs-0.1.0-preview.1-cd28333435a4.zip",
+      "license": "LicenseRef-Ingestron-Runtime-Preview-1.0",
+      "sha256": "cd28333435a4fa68e528bf49334e3f2499d46ca615b0af395c4b9f6a6d73a340",
+      "version": "0.1.0-preview.1"
+    },
+    "workerImage": {
+      "license": "LicenseRef-Ingestron-Runtime-Preview-1.0",
+      "registry": "ghcr.io/intentlabs-dev",
+      "repository": "ingestron-jobs-worker",
+      "sha256": "0e539a4bbf8d74b83e8b2e479c8e192376c5ebca66cb1cf2cc11b174004e7107"
+    }
+  },
+  "applicationDeploymentHelper": "private-one-deploy.mjs",
+  "bundleVersion": "1.1.1",
+  "changePolicy": {
+    "deletionAllowed": false,
+    "foundationAllowed": [
+      "Create",
+      "Ignore",
+      "NoChange"
+    ],
+    "ownedResourceGroup": true,
+    "replacementAllowed": false,
+    "runtimeAllowed": [
+      "Create",
+      "Ignore",
+      "NoChange",
+      "Modify"
+    ]
+  },
+  "contract": "ingestron.azure-bundle/v1",
+  "deploymentModes": [
+    "temporary-proof",
+    "persistent-demo"
+  ],
+  "files": {
+    "bundle-definition.json": {
+      "sha256": "ddd84c2d7a9defdda06d1b845ca72cb8eaf8dde31d26e405586c56ff0308f77e",
+      "size": 2279
+    },
+    "LICENSE-RUNTIME-PREVIEW.md": {
+      "sha256": "ea6d9818c16b028b2b265c435971201cfa665fc5ff98b0e719b2218e6e9e69d8",
+      "size": 1832
+    },
+    "private-one-deploy.mjs": {
+      "sha256": "7c0d0e4b8f995078048f70751258bd3970fb4466ec19eed6e0d59d28f1360c6b",
+      "size": 15566
+    },
+    "profile-j-foundation.json": {
+      "sha256": "8beb52d3ea6453b6e1632aa70d7c5a6e8cecbfd029a5c785b96d63fb9ff1d8cd",
+      "size": 9055
+    },
+    "profile-j-runtime.json": {
+      "sha256": "868bf3929651a7ca500db6a140106fdf6bc6202c11acd599220ea80f19b70677",
+      "size": 30239
+    }
+  },
+  "generatedAt": "1980-01-01T00:00:00.000Z",
+  "ingressModes": [
+    "disabled",
+    "entra-public"
+  ],
+  "licensing": {
+    "runtime": "LicenseRef-Ingestron-Runtime-Preview-1.0",
+    "runtimeLicenseFile": "LICENSE-RUNTIME-PREVIEW.md",
+    "source": "Apache-2.0"
+  },
+  "minimumCliVersion": "0.3.0-preview.1",
+  "monthlyCostCeilingUsd": 50,
+  "outputs": [
+    "endpoint",
+    "audience",
+    "tenantId",
+    "storageAccount",
+    "sourceContainer",
+    "packageContainer"
+  ],
+  "parameters": {
+    "safeConfiguration": [
+      "tenantId",
+      "subscriptionId",
+      "resourceGroupName",
+      "location",
+      "resourceSuffix",
+      "deploymentMode",
+      "apiIngressMode",
+      "entraApplicationClientId",
+      "allowedClientApplicationIds",
+      "pipelineCallerPrincipalId",
+      "workerImageSource",
+      "jobsFunctionsPackage",
+      "tags"
+    ],
+    "secretsForbidden": true
+  },
+  "profile": "profile-j",
+  "rollback": {
+    "automatic": false,
+    "minimumRetainedLocks": 2,
+    "requiresCompatibleBundle": true
+  },
+  "schemaVersion": 1,
+  "source": {
+    "repository": "intentlabs-dev/ingestron-azure",
+    "revision": "85bafc7caaaff2c509950a27b7d7d5f296265b4d"
+  },
+  "templates": {
+    "foundation": "profile-j-foundation.json",
+    "runtime": "profile-j-runtime.json"
+  }
+}

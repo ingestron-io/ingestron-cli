@@ -1,0 +1,256 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "2.0.1.0",
+  "parameters": {
+    "factoryName": { "type": "string" },
+    "pipelineName": { "type": "string" },
+    "endpoint": { "type": "string" },
+    "audience": { "type": "string" },
+    "recipeYaml": { "type": "secureString" },
+    "sourceConnectionYaml": { "type": "secureString" },
+    "destinationConnectionYaml": { "type": "secureString" }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.DataFactory/factories/pipelines",
+      "apiVersion": "2018-06-01",
+      "name": "[format('{0}/{1}', parameters('factoryName'), parameters('pipelineName'))]",
+      "properties": {
+        "description": "Ingestron-managed zero-input job pipeline. Installed by a digest-pinned CLI profile bundle.",
+        "parameters": {
+          "jobYaml": {
+            "type": "String",
+            "defaultValue": "[parameters('recipeYaml')]"
+          },
+          "sourceConnectionYaml": {
+            "type": "String",
+            "defaultValue": "[parameters('sourceConnectionYaml')]"
+          },
+          "destinationConnectionYaml": {
+            "type": "String",
+            "defaultValue": "[parameters('destinationConnectionYaml')]"
+          },
+          "pollSeconds": { "type": "Int", "defaultValue": 10 },
+          "ingestronEndpoint": {
+            "type": "String",
+            "defaultValue": "[parameters('endpoint')]"
+          },
+          "ingestronAudience": {
+            "type": "String",
+            "defaultValue": "[parameters('audience')]"
+          }
+        },
+        "variables": {
+          "jobId": { "type": "String" },
+          "jobState": { "type": "String", "defaultValue": "queued" }
+        },
+        "activities": [
+          {
+            "name": "Ensure source connection",
+            "type": "WebActivity",
+            "policy": {
+              "timeout": "0.00:02:00",
+              "retry": 2,
+              "retryIntervalInSeconds": 10,
+              "secureOutput": true,
+              "secureInput": true
+            },
+            "typeProperties": {
+              "method": "POST",
+              "url": {
+                "value": "@concat(pipeline().parameters.ingestronEndpoint, '/v1/connections')",
+                "type": "Expression"
+              },
+              "headers": { "Content-Type": "application/yaml" },
+              "body": {
+                "value": "@pipeline().parameters.sourceConnectionYaml",
+                "type": "Expression"
+              },
+              "authentication": {
+                "type": "MSI",
+                "resource": {
+                  "value": "@pipeline().parameters.ingestronAudience",
+                  "type": "Expression"
+                }
+              },
+              "turnOffAsync": true
+            }
+          },
+          {
+            "name": "Ensure destination connection",
+            "type": "WebActivity",
+            "dependsOn": [
+              {
+                "activity": "Ensure source connection",
+                "dependencyConditions": ["Succeeded"]
+              }
+            ],
+            "policy": {
+              "timeout": "0.00:02:00",
+              "retry": 2,
+              "retryIntervalInSeconds": 10,
+              "secureOutput": true,
+              "secureInput": true
+            },
+            "typeProperties": {
+              "method": "POST",
+              "url": {
+                "value": "@concat(pipeline().parameters.ingestronEndpoint, '/v1/connections')",
+                "type": "Expression"
+              },
+              "headers": { "Content-Type": "application/yaml" },
+              "body": {
+                "value": "@pipeline().parameters.destinationConnectionYaml",
+                "type": "Expression"
+              },
+              "authentication": {
+                "type": "MSI",
+                "resource": {
+                  "value": "@pipeline().parameters.ingestronAudience",
+                  "type": "Expression"
+                }
+              },
+              "turnOffAsync": true
+            }
+          },
+          {
+            "name": "Submit Ingestron job",
+            "type": "WebActivity",
+            "dependsOn": [
+              {
+                "activity": "Ensure destination connection",
+                "dependencyConditions": ["Succeeded"]
+              }
+            ],
+            "policy": {
+              "timeout": "0.00:02:00",
+              "retry": 2,
+              "retryIntervalInSeconds": 10,
+              "secureOutput": true,
+              "secureInput": true
+            },
+            "typeProperties": {
+              "method": "POST",
+              "url": {
+                "value": "@concat(pipeline().parameters.ingestronEndpoint, '/v1/jobs')",
+                "type": "Expression"
+              },
+              "headers": { "Content-Type": "application/yaml" },
+              "body": {
+                "value": "@pipeline().parameters.jobYaml",
+                "type": "Expression"
+              },
+              "authentication": {
+                "type": "MSI",
+                "resource": {
+                  "value": "@pipeline().parameters.ingestronAudience",
+                  "type": "Expression"
+                }
+              },
+              "turnOffAsync": true
+            }
+          },
+          {
+            "name": "Record job id",
+            "type": "SetVariable",
+            "dependsOn": [
+              {
+                "activity": "Submit Ingestron job",
+                "dependencyConditions": ["Succeeded"]
+              }
+            ],
+            "typeProperties": {
+              "variableName": "jobId",
+              "value": {
+                "value": "@coalesce(activity('Submit Ingestron job').output.jobId, activity('Submit Ingestron job').output.id)",
+                "type": "Expression"
+              }
+            }
+          },
+          {
+            "name": "Poll bounded job",
+            "type": "Until",
+            "dependsOn": [
+              {
+                "activity": "Record job id",
+                "dependencyConditions": ["Succeeded"]
+              }
+            ],
+            "typeProperties": {
+              "expression": {
+                "value": "@contains(createArray('succeeded', 'review_required', 'failed', 'cancelled', 'expired'), variables('jobState'))",
+                "type": "Expression"
+              },
+              "timeout": "0.01:00:00",
+              "activities": [
+                {
+                  "name": "Wait before status",
+                  "type": "Wait",
+                  "typeProperties": {
+                    "waitTimeInSeconds": {
+                      "value": "@pipeline().parameters.pollSeconds",
+                      "type": "Expression"
+                    }
+                  }
+                },
+                {
+                  "name": "Get job status",
+                  "type": "WebActivity",
+                  "dependsOn": [
+                    {
+                      "activity": "Wait before status",
+                      "dependencyConditions": ["Succeeded"]
+                    }
+                  ],
+                  "policy": {
+                    "timeout": "0.00:01:00",
+                    "retry": 2,
+                    "retryIntervalInSeconds": 10,
+                    "secureOutput": true,
+                    "secureInput": true
+                  },
+                  "typeProperties": {
+                    "method": "GET",
+                    "url": {
+                      "value": "@concat(pipeline().parameters.ingestronEndpoint, '/v1/jobs/', variables('jobId'))",
+                      "type": "Expression"
+                    },
+                    "authentication": {
+                      "type": "MSI",
+                      "resource": {
+                        "value": "@pipeline().parameters.ingestronAudience",
+                        "type": "Expression"
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "Record job state",
+                  "type": "SetVariable",
+                  "dependsOn": [
+                    {
+                      "activity": "Get job status",
+                      "dependencyConditions": ["Succeeded"]
+                    }
+                  ],
+                  "typeProperties": {
+                    "variableName": "jobState",
+                    "value": {
+                      "value": "@activity('Get job status').output.state",
+                      "type": "Expression"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "annotations": [
+          "ingestron-managed",
+          "bundle:2.0.1",
+          "recipe:yaml-default"
+        ]
+      }
+    }
+  ]
+}
