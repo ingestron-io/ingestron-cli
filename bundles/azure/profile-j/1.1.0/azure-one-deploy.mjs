@@ -34,9 +34,9 @@ export function parseArguments(argv) {
   for (const name of required) {
     if (!options[name]) throw new Error(`Missing --${name}.`);
   }
-  if (options.execute !== "private-one-deploy") {
+  if (options.execute !== "azure-one-deploy") {
     throw new Error(
-      "--execute must be exactly private-one-deploy after the live plan is approved.",
+      "--execute must be exactly azure-one-deploy after the live plan is approved.",
     );
   }
   if (!/^[a-f0-9]{64}$/.test(options.sha256)) {
@@ -530,13 +530,13 @@ async function deploy(options) {
   }
 
   console.log(
-    "Private One Deploy completed; the expected function was discovered and temporary Blob access was removed.",
+    "Azure One Deploy completed; the expected function was discovered and temporary Blob access was removed.",
   );
 }
 
 function printHelp() {
   console.log(`Usage:
-  pnpm deploy:private -- \\
+  node scripts/azure-one-deploy.mjs \\
     --resource-group <approved-group> \\
     --function-app <app-name> \\
     --storage-account <account-name> \\
@@ -550,7 +550,7 @@ function printHelp() {
     --expected-api-client-id <Profile-J-Entra-application-client-id> \\
     --expected-caller-client-id <Profile-J-ADF-managed-identity-client-id> \\
     --subscription-name <approved-subscription-name> \\
-    --execute private-one-deploy
+    --execute azure-one-deploy
 
 The command never prints or stores the access token or short-lived SAS.`);
 }

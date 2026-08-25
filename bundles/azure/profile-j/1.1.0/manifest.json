@@ -14,7 +14,7 @@
       "sha256": "0e539a4bbf8d74b83e8b2e479c8e192376c5ebca66cb1cf2cc11b174004e7107"
     }
   },
-  "applicationDeploymentHelper": "private-one-deploy.mjs",
+  "applicationDeploymentHelper": "azure-one-deploy.mjs",
   "bundleVersion": "1.1.0",
   "changePolicy": {
     "deletionAllowed": false,
@@ -38,17 +38,17 @@
     "persistent-demo"
   ],
   "files": {
+    "azure-one-deploy.mjs": {
+      "sha256": "0c1cf2882a23900bf8b7ce3cd5f57188488a0958ed33dd635e1c8b1607157496",
+      "size": 15569
+    },
     "bundle-definition.json": {
-      "sha256": "011ababb624b568f38341e40beaea56da11356fad47aa991730b2b3147b23939",
-      "size": 2279
+      "sha256": "ba83a381cc938322d171635ca9475be9ed7f5746fa42959fadaebfcb4f8b557d",
+      "size": 2277
     },
     "LICENSE-RUNTIME-PREVIEW.md": {
       "sha256": "ea6d9818c16b028b2b265c435971201cfa665fc5ff98b0e719b2218e6e9e69d8",
       "size": 1832
-    },
-    "private-one-deploy.mjs": {
-      "sha256": "7c0d0e4b8f995078048f70751258bd3970fb4466ec19eed6e0d59d28f1360c6b",
-      "size": 15566
     },
     "profile-j-foundation.json": {
       "sha256": "8beb52d3ea6453b6e1632aa70d7c5a6e8cecbfd029a5c785b96d63fb9ff1d8cd",
@@ -106,7 +106,7 @@
   "schemaVersion": 1,
   "source": {
     "repository": "intentlabs-dev/ingestron-azure",
-    "revision": "85bafc7caaaff2c509950a27b7d7d5f296265b4d"
+    "revision": "849f4a29f268eb9026e3266eb05e0a8f5fab9cf7"
   },
   "templates": {
     "foundation": "profile-j-foundation.json",

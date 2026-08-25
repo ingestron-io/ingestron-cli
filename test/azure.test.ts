@@ -61,7 +61,7 @@ const resourceIds = [
 const artifactVerifier: ArtifactVerifier = async (configPath) =>
   resolve(dirname(resolve(configPath)), "jobs.zip");
 const localRunner: LocalRunner = async () =>
-  "Private One Deploy completed; the expected function was discovered and temporary Blob access was removed.";
+  "Azure One Deploy completed; the expected function was discovered and temporary Blob access was removed.";
 
 async function bundleDigest(version = "1.1.0") {
   const bytes = await readFile(
