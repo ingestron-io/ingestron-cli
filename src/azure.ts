@@ -225,11 +225,12 @@ async function loadBundle(version: string, pinnedDigest?: string) {
       manifest.licensing.runtime ||
     manifest.applicationArtifacts?.workerImage?.license !==
       manifest.licensing.runtime ||
-    !/^https:\/\/github\.com\/intentlabs-dev\/ingestron-azure\/releases\/download\/v[0-9A-Za-z.-]+\/[A-Za-z0-9._-]+\.zip$/.test(
+    !/^https:\/\/github\.com\/(?:intentlabs-dev|ingestron-io)\/ingestron-azure\/releases\/download\/v[0-9A-Za-z.-]+\/[A-Za-z0-9._-]+\.zip$/.test(
       manifest.applicationArtifacts.jobsFunctions.downloadUrl,
     ) ||
-    manifest.applicationArtifacts.workerImage.registry !==
-      "ghcr.io/intentlabs-dev" ||
+    !["ghcr.io/intentlabs-dev", "ghcr.io/ingestron-io"].includes(
+      manifest.applicationArtifacts.workerImage.registry,
+    ) ||
     manifest.changePolicy.deletionAllowed !== false ||
     manifest.changePolicy.replacementAllowed !== false ||
     manifest.changePolicy.ownedResourceGroup !== true
@@ -775,7 +776,7 @@ export async function azureInit(
       "Azure account context is invalid",
       4,
     );
-  const version = options.bundleVersion ?? "1.1.0";
+  const version = options.bundleVersion ?? "1.2.0";
   const bundle = await loadBundle(version);
   if (!/^[a-z][a-z0-9-]{0,62}$/.test(options.name ?? "ingestron"))
     throw new CliError("CONFIG_INVALID", "--name must be a safe identifier");

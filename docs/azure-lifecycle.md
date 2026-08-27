@@ -50,6 +50,11 @@ ingestron azure upgrade --config ingestron.azure.yaml --to 1.1.1 --yes
 ingestron azure rollback --config ingestron.azure.yaml --yes
 ```
 
+`1.2.0` keeps the same runtime behaviour while moving the public release and
+digest-pinned worker distribution to the product-owned `ingestron-io` GitHub
+namespace. New installations use `1.2.0`; earlier bundles remain available only
+for explicit compatibility and rollback records.
+
 Uninstall first reconciles every resource ID against the exact lock. It refuses
 missing or unexpected resources, adopted Entra objects, a target mismatch or a
 changed ownership boundary. The current candidate uses an existing

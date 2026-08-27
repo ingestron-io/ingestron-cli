@@ -27,7 +27,7 @@ test("ADF bundle is parseable and retries are numeric and bounded", async () => 
 
 test("v2 bundle pins all profiles and contains no ADF global dependency", async () => {
   const manifest = JSON.parse(
-    await readFile("bundles/adf/2.0.4/manifest.json", "utf8"),
+    await readFile("bundles/adf/2.0.5/manifest.json", "utf8"),
   );
   assert.deepEqual(Object.keys(manifest.profiles).sort(), [
     "customer-managed",
@@ -38,7 +38,7 @@ test("v2 bundle pins all profiles and contains no ADF global dependency", async 
     string,
     { template: string; templateDigest: string },
   ][]) {
-    const bytes = await readFile(`bundles/adf/2.0.4/${entry.template}`);
+    const bytes = await readFile(`bundles/adf/2.0.5/${entry.template}`);
     const digest = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
     assert.equal(entry.templateDigest, digest, profile);
     const text = bytes.toString("utf8");
@@ -49,7 +49,7 @@ test("v2 bundle pins all profiles and contains no ADF global dependency", async 
 
 test("transient bundle secures grants, bounds retries and deletes hosted payloads", async () => {
   const template = JSON.parse(
-    await readFile("bundles/adf/2.0.4/transient-template.json", "utf8"),
+    await readFile("bundles/adf/2.0.5/transient-template.json", "utf8"),
   );
   const pipeline = template.resources.find((resource: { type: string }) =>
     resource.type.endsWith("/pipelines"),
@@ -85,7 +85,7 @@ test("v2 pipelines fail ADF when a job ends unsuccessfully", async () => {
     "transient-template.json",
   ]) {
     const template = JSON.parse(
-      await readFile(`bundles/adf/2.0.4/${templateName}`, "utf8"),
+      await readFile(`bundles/adf/2.0.5/${templateName}`, "utf8"),
     );
     const pipeline = template.resources.find((resource: { type: string }) =>
       resource.type.endsWith("/pipelines"),
@@ -111,7 +111,7 @@ test("v2 pipelines fail ADF when a job ends unsuccessfully", async () => {
 
 test("direct profiles derive a unique package path from the ADF run", async () => {
   const template = JSON.parse(
-    await readFile("bundles/adf/2.0.4/direct-template.json", "utf8"),
+    await readFile("bundles/adf/2.0.5/direct-template.json", "utf8"),
   );
   const pipeline = template.resources.find((resource: { type: string }) =>
     resource.type.endsWith("/pipelines"),
@@ -130,14 +130,19 @@ test("direct profiles derive a unique package path from the ADF run", async () =
 });
 
 test("Azure Profile J bundles retain Azure-owned provenance and file digests", async () => {
-  for (const version of ["1.1.0", "1.1.1"]) {
+  for (const version of ["1.1.0", "1.1.1", "1.2.0"]) {
     const root = `bundles/azure/profile-j/${version}`;
     const manifest = JSON.parse(
       await readFile(`${root}/manifest.json`, "utf8"),
     );
     assert.equal(manifest.contract, "ingestron.azure-bundle/v1");
     assert.equal(manifest.bundleVersion, version);
-    assert.equal(manifest.source.repository, "intentlabs-dev/ingestron-azure");
+    assert.equal(
+      manifest.source.repository,
+      version === "1.2.0"
+        ? "ingestron-io/ingestron-azure"
+        : "intentlabs-dev/ingestron-azure",
+    );
     assert.match(manifest.source.revision, /^[a-f0-9]{40}$/);
     assert.equal(manifest.changePolicy.deletionAllowed, false);
     for (const [fileName, entry] of Object.entries(manifest.files) as [
@@ -159,7 +164,7 @@ test("repository is public-source ready with release-only distribution", async (
   assert.equal(pkg.private, true);
   assert.ok(pkg.files.includes("dist"));
   assert.ok(pkg.files.includes("bundles"));
-  assert.equal(pkg.version, "0.3.0-preview.1");
+  assert.equal(pkg.version, "0.3.1-preview.1");
   assert.equal(pkg.license, "Apache-2.0");
   const release = await readFile(".github/workflows/release.yml", "utf8");
   assert.match(release, /gh release create/);
@@ -175,7 +180,7 @@ test("pnpm-style forwarded separator is accepted", () => {
   const envelope = JSON.parse(output);
   assert.equal(envelope.ok, true);
   assert.equal(envelope.command, "version");
-  assert.equal(envelope.result.version, "0.3.0-preview.1");
+  assert.equal(envelope.result.version, "0.3.1-preview.1");
 });
 
 test("help does not require command options", () => {

@@ -49,26 +49,30 @@ jobs:
         with:
           name: cli-ubuntu-latest
           path: release
+      - name: Resolve release version
+        id: metadata
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
       - name: Attest CLI archive provenance
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
-          subject-path: release/ingestron-cli-0.3.0-preview.1.tgz
+          subject-path: release/ingestron-cli-${{ steps.metadata.outputs.version }}.tgz
       - name: Attest CLI archive SBOM
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
-          subject-path: release/ingestron-cli-0.3.0-preview.1.tgz
-          sbom-path: release/ingestron-cli-0.3.0-preview.1.spdx.json
+          subject-path: release/ingestron-cli-${{ steps.metadata.outputs.version }}.tgz
+          sbom-path: release/ingestron-cli-${{ steps.metadata.outputs.version }}.spdx.json
       - name: Create preview release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" \
-            release/ingestron-cli-0.3.0-preview.1.tgz \
-            release/ingestron-cli-0.3.0-preview.1.spdx.json \
+            release/ingestron-cli-${{ steps.metadata.outputs.version }}.tgz \
+            release/ingestron-cli-${{ steps.metadata.outputs.version }}.spdx.json \
             release/provenance.json \
             release/SHA256SUMS \
             --verify-tag \
             --prerelease \
             --repo "$GITHUB_REPOSITORY" \
-            --title "Ingestron CLI 0.3.0 preview 1" \
+            --title "Ingestron CLI ${{ steps.metadata.outputs.version }}" \
             --notes "Unsupported customer-managed Azure and ADF technical preview. Verify SHA256SUMS and read SECURITY.md, LICENSING.md, and the Azure runtime licence before use. npm publication is intentionally deferred."

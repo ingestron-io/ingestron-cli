@@ -19,7 +19,7 @@ identity:
     - 44444444-4444-4444-8444-444444444444
   pipelineCallerPrincipalId: 55555555-5555-4555-8555-555555555555
 artifacts:
-  workerImageSource: https://ghcr.io/intentlabs-dev/ingestron-jobs-worker@sha256:0e539a4bbf8d74b83e8b2e479c8e192376c5ebca66cb1cf2cc11b174004e7107
+  workerImageSource: https://ghcr.io/ingestron-io/ingestron-jobs-worker@sha256:896991d8f565c8dda1224361a17e89ad405d0f49dee4e961eaa262e5d4db74e7
   jobsFunctionsPackage: artifacts/ingestron-jobs-0.1.0-preview.1-cd28333435a4.zip
 cost:
   plannedUsd: 8
@@ -27,5 +27,5 @@ tags:
   ingestron:owner: platform-team
   ingestron:purpose: finance-jobs
 bundle:
-  version: 1.1.0
+  version: 1.2.0
   digest: sha256:0000000000000000000000000000000000000000000000000000000000000000

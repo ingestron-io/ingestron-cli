@@ -1,0 +1,225 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.46.1.21595",
+      "templateHash": "16829852258574212342"
+    },
+    "name": "Ingestron Profile J customer-managed foundation",
+    "description": "Exact resource-group and private registry foundation for a CLI-orchestrated Profile J installation."
+  },
+  "parameters": {
+    "resourceGroupName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "location": {
+      "type": "string"
+    },
+    "resourceSuffix": {
+      "type": "string",
+      "minLength": 6,
+      "maxLength": 12
+    },
+    "deploymentMode": {
+      "type": "string",
+      "defaultValue": "temporary-proof",
+      "allowedValues": [
+        "temporary-proof",
+        "persistent-demo"
+      ]
+    },
+    "tags": {
+      "type": "object",
+      "defaultValue": {}
+    },
+    "monthlyCostCeilingUsd": {
+      "type": "int",
+      "defaultValue": 50,
+      "allowedValues": [
+        50
+      ]
+    }
+  },
+  "variables": {
+    "profileTag": "[if(equals(parameters('deploymentMode'), 'persistent-demo'), 'profile-j-demo', 'profile-j')]",
+    "requiredTags": "[union(parameters('tags'), createObject('ingestron:programme', 'ingestron', 'ingestron:profile', variables('profileTag'), 'ingestron:lifecycle', parameters('deploymentMode'), 'ingestron:managed-by', 'bicep', 'ingestron:monthly-cost-ceiling-usd', string(parameters('monthlyCostCeilingUsd'))))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Resources/resourceGroups",
+      "apiVersion": "2024-03-01",
+      "name": "[parameters('resourceGroupName')]",
+      "location": "[parameters('location')]",
+      "tags": "[variables('requiredTags')]"
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "ingestron-profile-j-foundation",
+      "resourceGroup": "[parameters('resourceGroupName')]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "resourceSuffix": {
+            "value": "[parameters('resourceSuffix')]"
+          },
+          "deploymentMode": {
+            "value": "[parameters('deploymentMode')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          },
+          "monthlyCostCeilingUsd": {
+            "value": "[parameters('monthlyCostCeilingUsd')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.46.1.21595",
+              "templateHash": "16368844447375210415"
+            },
+            "name": "Ingestron Profile J private worker registry",
+            "description": "Private image bootstrap for a temporary proof or maintained demo profile."
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "defaultValue": "[resourceGroup().location]"
+            },
+            "resourceSuffix": {
+              "type": "string",
+              "minLength": 6,
+              "maxLength": 12
+            },
+            "deploymentMode": {
+              "type": "string",
+              "defaultValue": "temporary-proof",
+              "allowedValues": [
+                "temporary-proof",
+                "persistent-demo"
+              ]
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {}
+            },
+            "monthlyCostCeilingUsd": {
+              "type": "int",
+              "defaultValue": 50,
+              "allowedValues": [
+                50
+              ]
+            }
+          },
+          "variables": {
+            "registryName": "[format('ingjcr{0}', parameters('resourceSuffix'))]",
+            "imageIdentityName": "[format('id-ing-j-{0}', parameters('resourceSuffix'))]",
+            "profileTag": "[if(equals(parameters('deploymentMode'), 'persistent-demo'), 'profile-j-demo', 'profile-j')]",
+            "requiredTags": "[union(parameters('tags'), createObject('ingestron:programme', 'ingestron', 'ingestron:profile', variables('profileTag'), 'ingestron:lifecycle', parameters('deploymentMode'), 'ingestron:managed-by', 'bicep', 'ingestron:monthly-cost-ceiling-usd', string(parameters('monthlyCostCeilingUsd'))))]",
+            "acrPullRoleId": "7f951dda-4ed3-4680-a7ca-43fe172d538d"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.ContainerRegistry/registries",
+              "apiVersion": "2023-07-01",
+              "name": "[variables('registryName')]",
+              "location": "[parameters('location')]",
+              "sku": {
+                "name": "Basic"
+              },
+              "tags": "[variables('requiredTags')]",
+              "properties": {
+                "adminUserEnabled": false,
+                "dataEndpointEnabled": false,
+                "publicNetworkAccess": "Enabled",
+                "zoneRedundancy": "Disabled"
+              }
+            },
+            {
+              "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+              "apiVersion": "2023-01-31",
+              "name": "[variables('imageIdentityName')]",
+              "location": "[parameters('location')]",
+              "tags": "[variables('requiredTags')]"
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[resourceId('Microsoft.ContainerRegistry/registries', variables('registryName'))]",
+              "name": "[guid(resourceId('Microsoft.ContainerRegistry/registries', variables('registryName')), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('imageIdentityName')), variables('acrPullRoleId'))]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('acrPullRoleId'))]",
+                "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('imageIdentityName')), '2023-01-31').principalId]",
+                "principalType": "ServicePrincipal"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('imageIdentityName'))]",
+                "[resourceId('Microsoft.ContainerRegistry/registries', variables('registryName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "registryName": {
+              "type": "string",
+              "value": "[variables('registryName')]"
+            },
+            "registryServer": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.ContainerRegistry/registries', variables('registryName')), '2023-07-01').loginServer]"
+            },
+            "imageIdentityName": {
+              "type": "string",
+              "value": "[variables('imageIdentityName')]"
+            },
+            "deploymentMode": {
+              "type": "string",
+              "value": "[parameters('deploymentMode')]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[subscriptionResourceId('Microsoft.Resources/resourceGroups', parameters('resourceGroupName'))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "resourceGroupId": {
+      "type": "string",
+      "value": "[subscriptionResourceId('Microsoft.Resources/resourceGroups', parameters('resourceGroupName'))]"
+    },
+    "resourceGroupName": {
+      "type": "string",
+      "value": "[parameters('resourceGroupName')]"
+    },
+    "registryName": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('resourceGroupName')), 'Microsoft.Resources/deployments', 'ingestron-profile-j-foundation'), '2025-04-01').outputs.registryName.value]"
+    },
+    "registryServer": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('resourceGroupName')), 'Microsoft.Resources/deployments', 'ingestron-profile-j-foundation'), '2025-04-01').outputs.registryServer.value]"
+    },
+    "imageIdentityName": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('resourceGroupName')), 'Microsoft.Resources/deployments', 'ingestron-profile-j-foundation'), '2025-04-01').outputs.imageIdentityName.value]"
+    },
+    "deploymentMode": {
+      "type": "string",
+      "value": "[parameters('deploymentMode')]"
+    }
+  }
+}

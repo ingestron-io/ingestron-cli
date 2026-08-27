@@ -10,7 +10,7 @@ const sourceRoot = resolve(
     resolve(root, "../ingestron-azure/build/customer-bundle/profile-j"),
 );
 const targetRoot = resolve(root, "bundles/azure/profile-j");
-const versions = ["1.1.0", "1.1.1"];
+const versions = ["1.2.0"];
 
 for (const version of versions) {
   const source = resolve(sourceRoot, version);
@@ -20,7 +20,7 @@ for (const version of versions) {
   if (
     manifest.contract !== "ingestron.azure-bundle/v1" ||
     manifest.bundleVersion !== version ||
-    manifest.source?.repository !== "intentlabs-dev/ingestron-azure"
+    manifest.source?.repository !== "ingestron-io/ingestron-azure"
   ) {
     throw new Error(`Refusing incompatible Azure bundle ${version}.`);
   }
