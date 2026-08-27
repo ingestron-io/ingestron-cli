@@ -27,7 +27,7 @@ test("ADF bundle is parseable and retries are numeric and bounded", async () => 
 
 test("v2 bundle pins all profiles and contains no ADF global dependency", async () => {
   const manifest = JSON.parse(
-    await readFile("bundles/adf/2.0.5/manifest.json", "utf8"),
+    await readFile("bundles/adf/2.1.0/manifest.json", "utf8"),
   );
   assert.deepEqual(Object.keys(manifest.profiles).sort(), [
     "customer-managed",
@@ -38,7 +38,7 @@ test("v2 bundle pins all profiles and contains no ADF global dependency", async 
     string,
     { template: string; templateDigest: string },
   ][]) {
-    const bytes = await readFile(`bundles/adf/2.0.5/${entry.template}`);
+    const bytes = await readFile(`bundles/adf/2.1.0/${entry.template}`);
     const digest = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
     assert.equal(entry.templateDigest, digest, profile);
     const text = bytes.toString("utf8");
@@ -49,7 +49,7 @@ test("v2 bundle pins all profiles and contains no ADF global dependency", async 
 
 test("transient bundle secures grants, bounds retries and deletes hosted payloads", async () => {
   const template = JSON.parse(
-    await readFile("bundles/adf/2.0.5/transient-template.json", "utf8"),
+    await readFile("bundles/adf/2.1.0/transient-template.json", "utf8"),
   );
   const pipeline = template.resources.find((resource: { type: string }) =>
     resource.type.endsWith("/pipelines"),
@@ -84,7 +84,7 @@ test("v2 pipelines fail ADF when a job ends unsuccessfully", async () => {
     "transient-template.json",
   ]) {
     const template = JSON.parse(
-      await readFile(`bundles/adf/2.0.5/${templateName}`, "utf8"),
+      await readFile(`bundles/adf/2.1.0/${templateName}`, "utf8"),
     );
     const pipeline = template.resources.find((resource: { type: string }) =>
       resource.type.endsWith("/pipelines"),
@@ -108,9 +108,38 @@ test("v2 pipelines fail ADF when a job ends unsuccessfully", async () => {
   }
 });
 
+test("v2 pipelines return one bounded durable-job result to waiting parents", async () => {
+  for (const templateName of [
+    "direct-template.json",
+    "transient-template.json",
+  ]) {
+    const template = JSON.parse(
+      await readFile(`bundles/adf/2.1.0/${templateName}`, "utf8"),
+    );
+    const pipeline = template.resources.find((resource: { type: string }) =>
+      resource.type.endsWith("/pipelines"),
+    ).properties;
+    const returns = pipeline.activities.filter(
+      (activity: { typeProperties?: { setSystemVariable?: boolean } }) =>
+        activity.typeProperties?.setSystemVariable === true,
+    );
+    assert.equal(returns.length, 1, templateName);
+    const result = returns[0].typeProperties;
+    assert.equal(result.variableName, "pipelineReturnValue");
+    assert.deepEqual(
+      result.value.map((entry: { key: string }) => entry.key),
+      ["jobId", "state", "manifestReference", "manifestDigest"],
+      templateName,
+    );
+    const text = JSON.stringify(result);
+    assert.doesNotMatch(text, /sas|token|secret|password|credential/i);
+    assert.match(text, /expectedDigest/);
+  }
+});
+
 test("direct profiles derive a unique package path from the ADF run", async () => {
   const template = JSON.parse(
-    await readFile("bundles/adf/2.0.5/direct-template.json", "utf8"),
+    await readFile("bundles/adf/2.1.0/direct-template.json", "utf8"),
   );
   const pipeline = template.resources.find((resource: { type: string }) =>
     resource.type.endsWith("/pipelines"),
@@ -119,6 +148,8 @@ test("direct profiles derive a unique package path from the ADF run", async () =
     (activity: { name: string }) => activity.name === "Submit Ingestron job",
   );
   assert.match(submit.typeProperties.body.value, /pipeline\(\)\.RunId/);
+  assert.match(submit.typeProperties.body.value, /businessRunKey/);
+  assert.equal(pipeline.parameters.businessRunKey.defaultValue, "");
   assert.match(submit.typeProperties.body.value, /jobYamlPrefix/);
   assert.match(submit.typeProperties.body.value, /jobYamlSuffix/);
   assert.equal(pipeline.parameters.jobYaml, undefined);
@@ -163,7 +194,7 @@ test("repository is public-source ready with release-only distribution", async (
   assert.equal(pkg.private, true);
   assert.ok(pkg.files.includes("dist"));
   assert.ok(pkg.files.includes("bundles"));
-  assert.equal(pkg.version, "0.3.2-preview.1");
+  assert.equal(pkg.version, "0.3.3-preview.1");
   assert.equal(pkg.license, "Apache-2.0");
   const release = await readFile(".github/workflows/release.yml", "utf8");
   assert.match(release, /gh release create/);
@@ -179,7 +210,7 @@ test("pnpm-style forwarded separator is accepted", () => {
   const envelope = JSON.parse(output);
   assert.equal(envelope.ok, true);
   assert.equal(envelope.command, "version");
-  assert.equal(envelope.result.version, "0.3.2-preview.1");
+  assert.equal(envelope.result.version, "0.3.3-preview.1");
 });
 
 test("help does not require command options", () => {
