@@ -182,11 +182,9 @@ async function run(): Promise<unknown> {
         location: requiredOption("--location"),
         resourceSuffix: requiredOption("--resource-suffix"),
         deploymentMode: requiredOption("--deployment-mode") as
-          | "temporary-proof"
-          | "persistent-demo",
+          "temporary-proof" | "persistent-demo",
         apiIngressMode: requiredOption("--ingress-mode") as
-          | "disabled"
-          | "entra-public",
+          "disabled" | "entra-public",
         entraApplicationClientId: requiredOption(
           "--entra-application-client-id",
         ),
