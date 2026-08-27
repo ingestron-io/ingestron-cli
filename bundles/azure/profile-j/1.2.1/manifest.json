@@ -106,7 +106,7 @@
   "schemaVersion": 1,
   "source": {
     "repository": "ingestron-io/ingestron-azure",
-    "revision": "aad94fa9a8ca8f50dc208b9608b9023dc1d52475"
+    "revision": "28441e4456a7786abcc35b2b7dff2dc23c6ac0a3"
   },
   "templates": {
     "foundation": "profile-j-foundation.json",
