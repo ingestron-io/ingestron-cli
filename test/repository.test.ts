@@ -59,8 +59,7 @@ test("transient bundle secures grants, bounds retries and deletes hosted payload
     for (const activity of activities as Record<string, unknown>[]) {
       all.push(activity);
       const properties = activity.typeProperties as
-        | { activities?: unknown[] }
-        | undefined;
+        { activities?: unknown[] } | undefined;
       if (properties?.activities) walk(properties.activities);
     }
   };
