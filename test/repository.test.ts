@@ -129,7 +129,7 @@ test("direct profiles derive a unique package path from the ADF run", async () =
 });
 
 test("Azure Profile J bundles retain Azure-owned provenance and file digests", async () => {
-  for (const version of ["1.1.0", "1.1.1", "1.2.0"]) {
+  for (const version of ["1.1.0", "1.1.1", "1.2.0", "1.2.1"]) {
     const root = `bundles/azure/profile-j/${version}`;
     const manifest = JSON.parse(
       await readFile(`${root}/manifest.json`, "utf8"),
@@ -138,7 +138,7 @@ test("Azure Profile J bundles retain Azure-owned provenance and file digests", a
     assert.equal(manifest.bundleVersion, version);
     assert.equal(
       manifest.source.repository,
-      version === "1.2.0"
+      version.startsWith("1.2.")
         ? "ingestron-io/ingestron-azure"
         : "intentlabs-dev/ingestron-azure",
     );
@@ -163,7 +163,7 @@ test("repository is public-source ready with release-only distribution", async (
   assert.equal(pkg.private, true);
   assert.ok(pkg.files.includes("dist"));
   assert.ok(pkg.files.includes("bundles"));
-  assert.equal(pkg.version, "0.3.1-preview.1");
+  assert.equal(pkg.version, "0.3.2-preview.1");
   assert.equal(pkg.license, "Apache-2.0");
   const release = await readFile(".github/workflows/release.yml", "utf8");
   assert.match(release, /gh release create/);
@@ -179,7 +179,7 @@ test("pnpm-style forwarded separator is accepted", () => {
   const envelope = JSON.parse(output);
   assert.equal(envelope.ok, true);
   assert.equal(envelope.command, "version");
-  assert.equal(envelope.result.version, "0.3.1-preview.1");
+  assert.equal(envelope.result.version, "0.3.2-preview.1");
 });
 
 test("help does not require command options", () => {
