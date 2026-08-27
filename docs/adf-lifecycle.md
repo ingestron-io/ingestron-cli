@@ -14,9 +14,11 @@ ingestron adf init --factory-resource-id /subscriptions/.../factories/my-adf \
 ingestron adf connection discover --config ingestron.yaml
 ingestron adf connection add finance --config ingestron.yaml \
   --linked-service finance-landing --store blob \
+  --account '<storage-account-name>' \
   --namespace finance --capability read
 ingestron adf connection add governed --config ingestron.yaml \
   --linked-service governed-lake --store adls \
+  --account '<storage-account-name>' \
   --namespace governed --capability write
 ingestron adf connection plan --config ingestron.yaml
 ingestron adf connection test finance --config ingestron.yaml
