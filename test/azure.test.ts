@@ -121,10 +121,12 @@ function fakeAzure(
     drift?: boolean;
     failCreateOnce?: boolean;
     foundationNoise?: boolean;
+    workerDigest?: string;
   } = {},
 ) {
   let exists = options.existing ?? false;
   let failCreateOnce = options.failCreateOnce ?? false;
+  const workerDigest = options.workerDigest ?? imageDigest;
   const calls: string[][] = [];
   const runner: CommandRunner = async (args) => {
     calls.push(args);
@@ -209,7 +211,7 @@ function fakeAzure(
     }
     if (args[0] === "acr" && args[1] === "import") return {};
     if (args[0] === "acr" && args[1] === "manifest")
-      return { digest: `sha256:${imageDigest}` };
+      return { digest: `sha256:${workerDigest}` };
     if (
       args[0] === "deployment" &&
       args[1] === "group" &&
@@ -272,7 +274,7 @@ function fakeAzure(
           template: {
             containers: [
               {
-                image: `ingjcrtestj01.azurecr.io/ingestron-jobs-worker@sha256:${imageDigest}`,
+                image: `ingjcrtestj01.azurecr.io/ingestron-jobs-worker@sha256:${workerDigest}`,
               },
             ],
           },
@@ -483,6 +485,34 @@ test("upgrade and rollback retain the last verified bundle", async () => {
     "utf8",
   );
   assert.doesNotMatch(lockText, /(?:^|\s)[&*][a-zA-Z0-9_-]+/m);
+});
+
+test("public namespace bundles upgrade from 1.2.0 and roll back exactly", async () => {
+  const path = await configuration("1.2.0");
+  const azure = fakeAzure({ workerDigest: namespaceImageDigest });
+  await azureInstall(path, true, azure.runner, localRunner, artifactVerifier);
+  const upgraded = await azureUpgrade(
+    path,
+    "1.2.1",
+    true,
+    azure.runner,
+    localRunner,
+    artifactVerifier,
+  );
+  assert.equal(upgraded.from, "1.2.0");
+  assert.equal(upgraded.to, "1.2.1");
+  assert.equal(parse(await readFile(path, "utf8")).bundle.version, "1.2.1");
+  const rolledBack = await azureRollback(
+    path,
+    true,
+    azure.runner,
+    localRunner,
+    artifactVerifier,
+  );
+  assert.equal(rolledBack.from, "1.2.1");
+  assert.equal(rolledBack.to, "1.2.0");
+  assert.equal(parse(await readFile(path, "utf8")).bundle.version, "1.2.0");
+  assert.equal((await azureVerify(path, azure.runner)).valid, true);
 });
 
 test("verified Azure outputs generate the existing customer-managed ADF config", async () => {

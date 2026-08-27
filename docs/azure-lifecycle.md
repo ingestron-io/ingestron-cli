@@ -55,6 +55,15 @@ digest-pinned worker distribution to the product-owned `ingestron-io` GitHub
 namespace. New installations use `1.2.0`; earlier bundles remain available only
 for explicit compatibility and rollback records.
 
+`1.2.1` intentionally pins the same templates and runtime artefacts as `1.2.0`.
+It is the public no-change lifecycle candidate: upgrade from `1.2.0` to `1.2.1`,
+verify, then roll back to the retained verified `1.2.0` lock:
+
+```text
+ingestron azure upgrade --config ingestron.azure.yaml --to 1.2.1 --yes
+ingestron azure rollback --config ingestron.azure.yaml --yes
+```
+
 Uninstall first reconciles every resource ID against the exact lock. It refuses
 missing or unexpected resources, adopted Entra objects, a target mismatch or a
 changed ownership boundary. The current candidate uses an existing

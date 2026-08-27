@@ -10,7 +10,7 @@ const sourceRoot = resolve(
     resolve(root, "../ingestron-azure/build/customer-bundle/profile-j"),
 );
 const targetRoot = resolve(root, "bundles/azure/profile-j");
-const versions = ["1.2.0"];
+const versions = ["1.2.1"];
 
 for (const version of versions) {
   const source = resolve(sourceRoot, version);
