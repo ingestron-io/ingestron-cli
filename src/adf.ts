@@ -53,7 +53,7 @@ const hostedDefaults = {
   endpoint: "https://api.ingestron.io",
   audience: "api://b7144c86-df2a-4e24-a1fa-8b6d995a95d2",
   pipelineName: "ingestron_hosted_job_v1",
-  bundleVersion: "2.0.4",
+  bundleVersion: "2.0.5",
 };
 
 export type AdfInitOptions = {

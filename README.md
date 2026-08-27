@@ -17,12 +17,12 @@ destination:
 
 ## Install the technical preview
 
-Download `ingestron-cli-0.3.0-preview.1.tgz` and `SHA256SUMS` from the GitHub
+Download `ingestron-cli-0.3.1-preview.1.tgz` and `SHA256SUMS` from the GitHub
 Release, verify the checksum, then install the archive with pnpm:
 
 ```sh
 shasum -a 256 --check SHA256SUMS
-pnpm add --global ./ingestron-cli-0.3.0-preview.1.tgz
+pnpm add --global ./ingestron-cli-0.3.1-preview.1.tgz
 ingestron version
 ```
 

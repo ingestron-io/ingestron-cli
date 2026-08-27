@@ -31,6 +31,8 @@ const callerClient = "44444444-4444-4444-8444-444444444444";
 const callerPrincipal = "55555555-5555-4555-8555-555555555555";
 const imageDigest =
   "0e539a4bbf8d74b83e8b2e479c8e192376c5ebca66cb1cf2cc11b174004e7107";
+const namespaceImageDigest =
+  "896991d8f565c8dda1224361a17e89ad405d0f49dee4e961eaa262e5d4db74e7";
 const groupName = "rg-ing-pb040-test";
 const groupId = `/subscriptions/${subscription}/resourceGroups/${groupName}`;
 const integration = {
@@ -344,7 +346,7 @@ test("azure init downloads the pinned Function package and defaults the worker d
   const config = parse(await readFile(path, "utf8"));
   assert.deepEqual(downloads, [
     [
-      "https://github.com/intentlabs-dev/ingestron-azure/releases/download/v0.4.0-preview.1/ingestron-jobs-0.1.0-preview.1-cd28333435a4.zip",
+      "https://github.com/ingestron-io/ingestron-azure/releases/download/v0.4.0-preview.1/ingestron-jobs-0.1.0-preview.1-cd28333435a4.zip",
       join(
         directory,
         "artifacts",
@@ -355,13 +357,13 @@ test("azure init downloads the pinned Function package and defaults the worker d
   ]);
   assert.equal(
     config.artifacts.workerImageSource,
-    `https://ghcr.io/intentlabs-dev/ingestron-jobs-worker@sha256:${imageDigest}`,
+    `https://ghcr.io/ingestron-io/ingestron-jobs-worker@sha256:${namespaceImageDigest}`,
   );
   assert.equal(
     config.artifacts.jobsFunctionsPackage,
     "artifacts/ingestron-jobs-0.1.0-preview.1-cd28333435a4.zip",
   );
-  assert.equal(config.bundle.version, "1.1.0");
+  assert.equal(config.bundle.version, "1.2.0");
 });
 
 test("plan defers runtime what-if until the Bicep foundation exists", async () => {

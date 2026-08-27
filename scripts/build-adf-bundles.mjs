@@ -5,8 +5,8 @@ import { fileURLToPath } from "node:url";
 import { format } from "prettier";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const bundleVersion = "2.0.4";
-const sourceDirectory = resolve(root, "bundles/adf/2.0.3");
+const bundleVersion = "2.0.5";
+const sourceDirectory = resolve(root, "bundles/adf/2.0.4");
 const directory = resolve(root, `bundles/adf/${bundleVersion}`);
 await mkdir(directory, { recursive: true });
 const sha256 = (bytes) =>
@@ -473,6 +473,8 @@ const manifest = JSON.parse(
   await readFile(resolve(sourceDirectory, "manifest.json"), "utf8"),
 );
 manifest.version = bundleVersion;
+manifest.sourceRepository = "ingestron-io/ingestron-cli";
+manifest.compatibility.cli = ">=0.3.1-preview.1 <0.4.0";
 const directDigest = sha256(directBytes);
 for (const profile of ["hosted-registered-storage", "customer-managed"])
   manifest.profiles[profile].templateDigest = directDigest;
