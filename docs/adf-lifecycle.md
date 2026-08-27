@@ -8,6 +8,30 @@ Every call uses the factory managed identity. Endpoint, Entra audience, recipe
 and storage mappings are compiled from reviewed config, so none of the five
 historical Ingestron/job/storage ADF globals is needed.
 
+Bundle 2.1.0 makes the installed pipeline usable as a waiting ADF child
+pipeline. After a `succeeded` or `review_required` job, it returns exactly four
+credential-free values to Execute Pipeline:
+
+- `jobId` — the opaque durable job identifier;
+- `state` — `succeeded` or `review_required`;
+- `manifestReference` — the committed customer-storage URI or installed
+  destination path; and
+- `manifestDigest` — the expected SHA-256 digest.
+
+The parent must enable **Wait on completion** to read
+`@activity('<child activity>').output.pipelineReturnValue.<key>`. Failed,
+cancelled and expired jobs still fail the child pipeline and return no consumable
+result. No source value, storage credential, SAS, token or internal hosted path is
+included.
+
+Customer-managed and registered-storage parents may pass the optional
+`businessRunKey` string to place an intentional retry at the same immutable
+destination. When omitted, the child uses its own ADF `RunId`, preserving the
+default one-package-per-execution behaviour. Use a non-sensitive bounded key such
+as `close-2026-07-nz`; reusing it with changed source intent fails safely rather
+than overwriting the first result. Hosted transient transfer creates a new
+isolated upload and does not currently offer this stable-key replay pattern.
+
 ```sh
 ingestron adf init --factory-resource-id /subscriptions/.../factories/my-adf \
   --profile hosted-transient --recipe recipe.yaml

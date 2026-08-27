@@ -40,7 +40,7 @@ const commit = execFileSync("git", ["rev-parse", "HEAD"], {
 }).trim();
 const pkg = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
 const bundle = JSON.parse(
-  await readFile(resolve(root, "bundles/adf/2.0.5/manifest.json"), "utf8"),
+  await readFile(resolve(root, "bundles/adf/2.1.0/manifest.json"), "utf8"),
 );
 const azureBundles = await Promise.all(
   ["1.1.0", "1.1.1", "1.2.0", "1.2.1"].map(async (version) => {

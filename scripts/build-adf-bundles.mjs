@@ -5,8 +5,8 @@ import { fileURLToPath } from "node:url";
 import { format } from "prettier";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const bundleVersion = "2.0.5";
-const sourceDirectory = resolve(root, "bundles/adf/2.0.4");
+const bundleVersion = "2.1.0";
+const sourceDirectory = resolve(root, "bundles/adf/2.0.5");
 const directory = resolve(root, `bundles/adf/${bundleVersion}`);
 await mkdir(directory, { recursive: true });
 const sha256 = (bytes) =>
@@ -49,6 +49,39 @@ const requireSuccessfulJob = (name, dependsOn) => ({
         },
       },
     ],
+  },
+});
+const returnDurableJobResult = ({
+  dependsOn,
+  jobId,
+  state,
+  manifestReference,
+  manifestDigest,
+}) => ({
+  name: "Return durable job result",
+  type: "SetVariable",
+  dependsOn: [dependency(dependsOn)],
+  typeProperties: {
+    variableName: "pipelineReturnValue",
+    value: [
+      {
+        key: "jobId",
+        value: { type: "Expression", content: jobId },
+      },
+      {
+        key: "state",
+        value: { type: "Expression", content: state },
+      },
+      {
+        key: "manifestReference",
+        value: { type: "Expression", content: manifestReference },
+      },
+      {
+        key: "manifestDigest",
+        value: { type: "Expression", content: manifestDigest },
+      },
+    ],
+    setSystemVariable: true,
   },
 });
 const web = ({
@@ -206,8 +239,16 @@ const activities = [
   },
   requireSuccessfulJob("Require hosted job success", "Poll hosted job"),
   web({
-    name: "Issue manifest read grant",
+    name: "Get terminal hosted result",
     dependsOn: ["Require hosted job success"],
+    method: "GET",
+    path: "'/v1/jobs/', activity('Submit minimal hosted job').output.jobId",
+    secureInput: true,
+    secureOutput: false,
+  }),
+  web({
+    name: "Issue manifest read grant",
+    dependsOn: ["Get terminal hosted result"],
     method: "POST",
     path: "'/v1/jobs/', activity('Submit minimal hosted job').output.jobId, '/manifest:download'",
     body: "{}",
@@ -244,6 +285,15 @@ const activities = [
     path: "'/v1/jobs/', activity('Submit minimal hosted job').output.jobId",
     secureInput: true,
     secureOutput: true,
+  }),
+  returnDurableJobResult({
+    dependsOn: "Delete hosted job payloads",
+    jobId: "@activity('Submit minimal hosted job').output.jobId",
+    state: "@variables('jobState')",
+    manifestReference:
+      "@concat(pipeline().parameters.destinationPath, activity('Submit minimal hosted job').output.jobId, '/manifest.json')",
+    manifestDigest:
+      "@activity('Get terminal hosted result').output.result.manifest.expectedDigest",
   }),
 ];
 
@@ -446,12 +496,16 @@ directPipeline.properties.parameters.jobYamlSuffix = {
   type: "String",
   defaultValue: "[parameters('recipeYamlSuffix')]",
 };
+directPipeline.properties.parameters.businessRunKey = {
+  type: "String",
+  defaultValue: "",
+};
 const directSubmit = directPipeline.properties.activities.find(
   (activity) => activity.name === "Submit Ingestron job",
 );
 if (!directSubmit) throw new Error("Direct ADF bundle has no submit activity.");
 directSubmit.typeProperties.body = expression(
-  "@concat(pipeline().parameters.jobYamlPrefix, pipeline().RunId, pipeline().parameters.jobYamlSuffix)",
+  "@concat(pipeline().parameters.jobYamlPrefix, if(empty(pipeline().parameters.businessRunKey), pipeline().RunId, pipeline().parameters.businessRunKey), pipeline().parameters.jobYamlSuffix)",
 );
 directPipeline.properties.activities =
   directPipeline.properties.activities.filter(
@@ -459,6 +513,27 @@ directPipeline.properties.activities =
   );
 directPipeline.properties.activities.push(
   requireSuccessfulJob("Require job success", "Poll bounded job"),
+);
+directPipeline.properties.activities.push(
+  web({
+    name: "Get terminal job result",
+    dependsOn: ["Require job success"],
+    method: "GET",
+    path: "'/v1/jobs/', variables('jobId')",
+    secureInput: true,
+    secureOutput: false,
+  }),
+);
+directPipeline.properties.activities.push(
+  returnDurableJobResult({
+    dependsOn: "Get terminal job result",
+    jobId: "@variables('jobId')",
+    state: "@variables('jobState')",
+    manifestReference:
+      "@activity('Get terminal job result').output.result.manifest.uri",
+    manifestDigest:
+      "@activity('Get terminal job result').output.result.manifest.expectedDigest",
+  }),
 );
 directPipeline.properties.annotations =
   directPipeline.properties.annotations.map((annotation) =>
@@ -474,7 +549,7 @@ const manifest = JSON.parse(
 );
 manifest.version = bundleVersion;
 manifest.sourceRepository = "ingestron-io/ingestron-cli";
-manifest.compatibility.cli = ">=0.3.1-preview.1 <0.4.0";
+manifest.compatibility.cli = ">=0.3.3-preview.1 <0.4.0";
 const directDigest = sha256(directBytes);
 for (const profile of ["hosted-registered-storage", "customer-managed"])
   manifest.profiles[profile].templateDigest = directDigest;
