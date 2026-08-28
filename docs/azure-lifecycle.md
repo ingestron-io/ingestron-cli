@@ -8,7 +8,8 @@ Ingestron hosted control plane.
 
 1. Sign in with the organisation's approved Azure CLI identity and select the
    exact subscription.
-2. Run `azure init` once. It discovers the active tenant/subscription,
+2. Run `azure init` once with the explicit approved subscription ID. It resolves
+   that exact target instead of inheriting the ambient Azure CLI subscription,
    downloads and verifies the bundle-pinned Function package, selects the
    digest-pinned public worker image, and writes only safe intent. Both artefact
    references may be overridden for an approved internal mirror.
@@ -30,7 +31,7 @@ Lock history is serialised without YAML anchors so every generated lock remains
 compatible with the CLI's alias-free safe YAML reader after upgrade and rollback.
 
 ```text
-ingestron azure init ...
+ingestron azure init --subscription <approved-subscription-id> ...
 ingestron azure plan --config ingestron.azure.yaml
 ingestron azure install --config ingestron.azure.yaml --yes
 ingestron azure status --config ingestron.azure.yaml
