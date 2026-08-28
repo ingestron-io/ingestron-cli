@@ -121,6 +121,7 @@ export type ArtifactDownloader = (
 
 export type AzureInitOptions = {
   name?: string;
+  subscriptionId: string;
   resourceGroupName: string;
   location: string;
   resourceSuffix: string;
@@ -769,13 +770,36 @@ export async function azureInit(
   artifactVerifier: ArtifactVerifier = verifyArtifacts,
   artifactDownloader: ArtifactDownloader = defaultArtifactDownloader,
 ) {
-  const account = await runner(["account", "show", "--output", "json"]);
+  if (!uuidPattern.test(options.subscriptionId))
+    throw new CliError(
+      "CONFIG_INVALID",
+      "--subscription must be an Azure subscription ID",
+      2,
+    );
+  const account = await runner([
+    "account",
+    "show",
+    "--subscription",
+    options.subscriptionId,
+    "--output",
+    "json",
+  ]);
   if (!isRecord(account))
     throw new CliError(
       "AZ_OUTPUT_INVALID",
       "Azure account context is invalid",
       4,
     );
+  if (
+    String(account.id ?? "").toLowerCase() !==
+    options.subscriptionId.toLowerCase()
+  ) {
+    throw new CliError(
+      "AZURE_CONTEXT_MISMATCH",
+      "Azure returned a different subscription than the explicit --subscription target",
+      4,
+    );
+  }
   const version = options.bundleVersion ?? "1.2.0";
   const bundle = await loadBundle(version);
   if (!/^[a-z][a-z0-9-]{0,62}$/.test(options.name ?? "ingestron"))

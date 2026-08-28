@@ -17,12 +17,12 @@ destination:
 
 ## Install the technical preview
 
-Download `ingestron-cli-0.3.3-preview.1.tgz` and `SHA256SUMS` from the GitHub
+Download `ingestron-cli-0.3.4-preview.1.tgz` and `SHA256SUMS` from the GitHub
 Release, verify the checksum, then install the archive with pnpm:
 
 ```sh
 shasum -a 256 --check SHA256SUMS
-pnpm add --global ./ingestron-cli-0.3.3-preview.1.tgz
+pnpm add --global ./ingestron-cli-0.3.4-preview.1.tgz
 ingestron version
 ```
 
@@ -39,7 +39,9 @@ ingestron azure init|plan|install|status|verify|upgrade|rollback|adf-config|plan
 
 ADF config maps logical recipe connections to existing linked services. It needs
 no Ingestron global parameters and stores no connection string, key, token, SAS,
-or service-principal secret. Customer-managed Azure config uses the active Azure
+or service-principal secret. Customer-managed Azure initialisation requires an
+explicit `--subscription` and verifies that exact target rather than inheriting
+the ambient Azure CLI subscription. The generated config uses the resolved Azure
 CLI identity and automatically downloads the bundle-pinned Function preview when
 an override is not supplied.
 

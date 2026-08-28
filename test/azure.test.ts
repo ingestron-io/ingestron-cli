@@ -287,15 +287,17 @@ function fakeAzure(
   return { calls, runner };
 }
 
-test("azure init discovers the exact account and pins the authoritative bundle", async () => {
+test("azure init requires and resolves the explicit subscription target", async () => {
   const directory = await mkdtemp(join(tmpdir(), "ingestron-azure-init-"));
   const packagePath = join(directory, "jobs.zip");
   await writeFile(packagePath, "synthetic fixture");
   const path = join(directory, "ingestron.azure.yaml");
+  const fake = fakeAzure();
   await azureInit(
     path,
     {
       name: "test",
+      subscriptionId: subscription,
       resourceGroupName: groupName,
       location: "australiaeast",
       resourceSuffix: "testj01",
@@ -309,12 +311,20 @@ test("azure init discovers the exact account and pins the authoritative bundle",
       plannedUsd: 3,
       expiresOn: "2026-08-26",
     },
-    fakeAzure().runner,
+    fake.runner,
     artifactVerifier,
   );
   const config = parse(await readFile(path, "utf8"));
   assert.equal(config.target.subscriptionId, subscription);
   assert.equal(config.target.tenantId, tenant);
+  assert.ok(
+    fake.calls.some(
+      (args) =>
+        args[0] === "account" &&
+        args.includes("--subscription") &&
+        args.includes(subscription),
+    ),
+  );
   assert.match(config.bundle.digest, /^sha256:[a-f0-9]{64}$/);
   assert.equal(JSON.stringify(config).includes("secret"), false);
 });
@@ -330,6 +340,7 @@ test("azure init downloads the pinned Function package and defaults the worker d
     path,
     {
       name: "test",
+      subscriptionId: subscription,
       resourceGroupName: groupName,
       location: "australiaeast",
       resourceSuffix: "testj01",

@@ -50,7 +50,11 @@ const filtered = args.filter(
     arg !== "--no-colour",
 );
 const command = filtered.slice(0, 2).join(" ") || "help";
-const usage = `Commands: version; recipe validate; contract check; package verify; adf init|migrate|plan|install|status|verify|upgrade|rollback|plan-uninstall|uninstall; adf connection discover|add|plan|test; azure init|plan|install|status|verify|upgrade|rollback|adf-config|plan-uninstall|uninstall. Profiles: ${adfProfiles.join(", ")}`;
+const docsUrl = "https://docs.ingestron.io/docs/deployment/cli-reference";
+const usage = `Commands: version; recipe validate; contract check; package verify; adf init|migrate|plan|install|status|verify|upgrade|rollback|plan-uninstall|uninstall; adf connection discover|add|plan|test; azure init|plan|install|status|verify|upgrade|rollback|adf-config|plan-uninstall|uninstall. Profiles: ${adfProfiles.join(", ")}. Docs: ${docsUrl}`;
+const azureInitUsage =
+  "ingestron azure init --subscription <subscription-id> --resource-group <name> --location <region> --resource-suffix <suffix> --deployment-mode <temporary-proof|persistent-demo> --ingress-mode <disabled|entra-public> --entra-application-client-id <id> --allowed-client-application-id <id> --pipeline-caller-principal-id <id> --planned-usd <amount> [--config <path>] [--name <name>] [--expires-on <date>]. Docs: " +
+  docsUrl;
 
 const option = (name: string) => {
   const index = filtered.indexOf(name);
@@ -68,7 +72,13 @@ const requiredPath = (index: number, label: string) => {
 };
 
 async function run(): Promise<unknown> {
-  if (filtered.includes("--help") || filtered[0] === "help") return { usage };
+  if (filtered.includes("--help") || filtered[0] === "help")
+    return {
+      usage:
+        filtered[0] === "azure" && filtered[1] === "init"
+          ? azureInitUsage
+          : usage,
+    };
   if (filtered[0] === "version") {
     const packagePath = resolve(
       dirname(fileURLToPath(import.meta.url)),
@@ -178,6 +188,7 @@ async function run(): Promise<unknown> {
         throw new CliError("USAGE", "--planned-usd must be a number", 2);
       return azureInit(option("--config") ?? "ingestron.azure.yaml", {
         name: option("--name"),
+        subscriptionId: requiredOption("--subscription"),
         resourceGroupName: requiredOption("--resource-group"),
         location: requiredOption("--location"),
         resourceSuffix: requiredOption("--resource-suffix"),
