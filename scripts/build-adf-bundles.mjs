@@ -5,8 +5,8 @@ import { fileURLToPath } from "node:url";
 import { format } from "prettier";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const bundleVersion = "2.1.0";
-const sourceDirectory = resolve(root, "bundles/adf/2.0.5");
+const bundleVersion = "2.2.0";
+const sourceDirectory = resolve(root, "bundles/adf/2.1.0");
 const directory = resolve(root, `bundles/adf/${bundleVersion}`);
 await mkdir(directory, { recursive: true });
 const sha256 = (bytes) =>
@@ -482,7 +482,9 @@ const direct = JSON.parse(
 direct.contentVersion = `${bundleVersion}.0`;
 delete direct.parameters.recipeYaml;
 direct.parameters.recipeYamlPrefix = { type: "secureString" };
+direct.parameters.recipeYamlMiddle = { type: "secureString" };
 direct.parameters.recipeYamlSuffix = { type: "secureString" };
+direct.parameters.sourcePath = { type: "secureString" };
 const directPipeline = direct.resources.find((resource) =>
   resource.type.endsWith("/pipelines"),
 );
@@ -492,9 +494,17 @@ directPipeline.properties.parameters.jobYamlPrefix = {
   type: "String",
   defaultValue: "[parameters('recipeYamlPrefix')]",
 };
+directPipeline.properties.parameters.jobYamlMiddle = {
+  type: "String",
+  defaultValue: "[parameters('recipeYamlMiddle')]",
+};
 directPipeline.properties.parameters.jobYamlSuffix = {
   type: "String",
   defaultValue: "[parameters('recipeYamlSuffix')]",
+};
+directPipeline.properties.parameters.sourcePath = {
+  type: "String",
+  defaultValue: "[parameters('sourcePath')]",
 };
 directPipeline.properties.parameters.businessRunKey = {
   type: "String",
@@ -505,11 +515,16 @@ const directSubmit = directPipeline.properties.activities.find(
 );
 if (!directSubmit) throw new Error("Direct ADF bundle has no submit activity.");
 directSubmit.typeProperties.body = expression(
-  "@concat(pipeline().parameters.jobYamlPrefix, if(empty(pipeline().parameters.businessRunKey), pipeline().RunId, pipeline().parameters.businessRunKey), pipeline().parameters.jobYamlSuffix)",
+  "@concat(pipeline().parameters.jobYamlPrefix, pipeline().parameters.sourcePath, pipeline().parameters.jobYamlMiddle, if(empty(pipeline().parameters.businessRunKey), pipeline().RunId, pipeline().parameters.businessRunKey), pipeline().parameters.jobYamlSuffix)",
 );
 directPipeline.properties.activities =
   directPipeline.properties.activities.filter(
-    (activity) => activity.name !== "Require job success",
+    (activity) =>
+      ![
+        "Require job success",
+        "Get terminal job result",
+        "Return durable job result",
+      ].includes(activity.name),
   );
 directPipeline.properties.activities.push(
   requireSuccessfulJob("Require job success", "Poll bounded job"),
@@ -549,7 +564,7 @@ const manifest = JSON.parse(
 );
 manifest.version = bundleVersion;
 manifest.sourceRepository = "ingestron-io/ingestron-cli";
-manifest.compatibility.cli = ">=0.3.3-preview.1 <0.4.0";
+manifest.compatibility.cli = ">=0.3.6-preview.1 <0.4.0";
 const directDigest = sha256(directBytes);
 for (const profile of ["hosted-registered-storage", "customer-managed"])
   manifest.profiles[profile].templateDigest = directDigest;

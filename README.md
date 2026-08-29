@@ -20,14 +20,19 @@ durable contract gate. That outcome is intentionally limited to the
 customer-managed profile; both hosted profiles fail validation before Azure
 deployment.
 
+The same shape also selects `copy.batch-reconciliation-gate`: its source path is
+the digest-pinned control manifest created after Copy, and its destination is the
+customer-owned immutable decision package prefix. Control values do not enter
+CLI configuration or command output. This outcome is customer-managed only.
+
 ## Install the technical preview
 
-Download `ingestron-cli-0.3.5-preview.1.tgz` and `SHA256SUMS` from the GitHub
+Download `ingestron-cli-0.3.6-preview.1.tgz` and `SHA256SUMS` from the GitHub
 Release, verify the checksum, then install the archive with pnpm:
 
 ```sh
 shasum -a 256 --check SHA256SUMS
-pnpm add --global ./ingestron-cli-0.3.5-preview.1.tgz
+pnpm add --global ./ingestron-cli-0.3.6-preview.1.tgz
 ingestron version
 ```
 

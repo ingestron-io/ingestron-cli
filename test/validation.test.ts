@@ -55,6 +55,27 @@ test("durable landing batch recipe uses the same five author fields", async () =
   });
 });
 
+test("durable copy reconciliation recipe keeps control facts outside CLI config", async () => {
+  const directory = await temporary();
+  const path = join(directory, "recipe.yaml");
+  await writeFile(
+    path,
+    "outcome: copy.batch-reconciliation-gate\nsource:\n  connection: landing\n  path: daily/copy-controls.yaml\ndestination:\n  connection: governed\n  path: reconciliation/daily/\n",
+  );
+  assert.deepEqual(await validateRecipe(path), {
+    valid: true,
+    outcome: "copy.batch-reconciliation-gate",
+    authorFields: [
+      "outcome",
+      "source.connection",
+      "source.path",
+      "destination.connection",
+      "destination.path",
+    ],
+    defaultsResolvedBy: "execution-boundary",
+  });
+});
+
 test("recipe rejects traversal and unexpected fields", async () => {
   const directory = await temporary();
   const path = join(directory, "recipe.yaml");

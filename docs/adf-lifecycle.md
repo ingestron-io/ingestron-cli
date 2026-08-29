@@ -8,7 +8,7 @@ Every call uses the factory managed identity. Endpoint, Entra audience, recipe
 and storage mappings are compiled from reviewed config, so none of the five
 historical Ingestron/job/storage ADF globals is needed.
 
-Bundle 2.1.0 makes the installed pipeline usable as a waiting ADF child
+Bundle 2.2.0 makes the installed pipeline usable as a waiting ADF child
 pipeline. After a `succeeded` or `review_required` job, it returns exactly four
 credential-free values to Execute Pipeline:
 
@@ -31,6 +31,13 @@ default one-package-per-execution behaviour. Use a non-sensitive bounded key suc
 as `close-2026-07-nz`; reusing it with changed source intent fails safely rather
 than overwriting the first result. Hosted transient transfer creates a new
 isolated upload and does not currently offer this stable-key replay pattern.
+
+Direct-storage parents may also pass a safe relative `sourcePath`. This lets a
+copy pipeline write one run-specific reconciliation manifest, then point the
+same installed child at that exact object without reinstalling the recipe. The
+runtime still resolves the path inside the registered customer container and
+rejects traversal, URLs and credentials. When omitted, the installed recipe path
+remains the default.
 
 ```sh
 ingestron adf init --factory-resource-id /subscriptions/.../factories/my-adf \
