@@ -34,6 +34,27 @@ test("minimal nested recipe validates without advanced fields", async () => {
   });
 });
 
+test("durable landing batch recipe uses the same five author fields", async () => {
+  const directory = await temporary();
+  const path = join(directory, "recipe.yaml");
+  await writeFile(
+    path,
+    "outcome: landing.batch-contract-gate\nsource:\n  connection: landing\n  path: daily/landing-batch.yaml\ndestination:\n  connection: governed\n  path: quality/daily/\n",
+  );
+  assert.deepEqual(await validateRecipe(path), {
+    valid: true,
+    outcome: "landing.batch-contract-gate",
+    authorFields: [
+      "outcome",
+      "source.connection",
+      "source.path",
+      "destination.connection",
+      "destination.path",
+    ],
+    defaultsResolvedBy: "execution-boundary",
+  });
+});
+
 test("recipe rejects traversal and unexpected fields", async () => {
   const directory = await temporary();
   const path = join(directory, "recipe.yaml");

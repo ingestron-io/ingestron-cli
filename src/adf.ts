@@ -7,6 +7,7 @@ import { stringify } from "yaml";
 import { CliError, redact } from "./errors.js";
 import { isRecord, readSafeFile, readYaml } from "./files.js";
 import {
+  assertRecipeProfile,
   readRecipe,
   serialiseJobIntent,
   serialiseRecipe,
@@ -588,6 +589,7 @@ async function resolveConfiguredRecipe(
   const recipe = await readRecipe(
     resolve(dirname(resolve(configPath)), config.recipe.path),
   );
+  assertRecipeProfile(recipe, config.profile);
   for (const requirement of [
     { alias: recipe.source.connection, capability: "read" as const },
     { alias: recipe.destination.connection, capability: "write" as const },

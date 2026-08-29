@@ -14,6 +14,11 @@ export type Recipe = {
   destination: ConnectionReference;
 };
 
+export const supportedRecipeOutcomes = [
+  "workbook.to-governed-dataset",
+  "landing.batch-contract-gate",
+] as const;
+
 const allowedRecipeKeys = new Set(["outcome", "source", "destination"]);
 
 function parseReference(value: unknown, field: string): ConnectionReference {
@@ -61,16 +66,28 @@ export function parseRecipe(value: unknown): Recipe {
   const outcome = String(value.outcome ?? "");
   if (!/^[a-z][a-z0-9.-]{2,127}$/.test(outcome))
     throw new CliError("RECIPE_INVALID", "outcome must be a dotted identifier");
-  if (outcome !== "workbook.to-governed-dataset")
+  if (!supportedRecipeOutcomes.includes(outcome as never))
     throw new CliError(
       "RECIPE_UNSUPPORTED",
-      "Only workbook.to-governed-dataset is authorised in this release",
+      "Recipe outcome is unsupported in this release",
     );
   return {
     outcome,
     source: parseReference(value.source, "source"),
     destination: parseReference(value.destination, "destination"),
   };
+}
+
+export function assertRecipeProfile(recipe: Recipe, profile: string): void {
+  if (
+    recipe.outcome === "landing.batch-contract-gate" &&
+    profile !== "customer-managed"
+  ) {
+    throw new CliError(
+      "RECIPE_PROFILE_UNSUPPORTED",
+      "landing.batch-contract-gate requires the customer-managed profile",
+    );
+  }
 }
 
 export async function readRecipe(path: string): Promise<Recipe> {

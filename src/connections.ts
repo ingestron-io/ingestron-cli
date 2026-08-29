@@ -13,7 +13,7 @@ import {
 } from "./adf.js";
 import { CliError } from "./errors.js";
 import { isRecord } from "./files.js";
-import { readRecipe } from "./recipe.js";
+import { assertRecipeProfile, readRecipe } from "./recipe.js";
 
 export type ConnectionInput = {
   linkedService: string;
@@ -150,6 +150,7 @@ async function boundConnections(configPath: string) {
     );
   const recipePath = resolve(dirname(resolve(configPath)), config.recipe.path);
   const recipe = await readRecipe(recipePath);
+  assertRecipeProfile(recipe, config.profile);
   const requirements = [
     {
       role: "source",

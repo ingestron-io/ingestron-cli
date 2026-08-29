@@ -1,0 +1,7 @@
+outcome: landing.batch-contract-gate
+source:
+  connection: landing
+  path: daily/landing-batch.yaml
+destination:
+  connection: governed
+  path: quality/daily/
