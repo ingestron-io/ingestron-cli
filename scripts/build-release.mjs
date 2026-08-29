@@ -43,7 +43,7 @@ const bundle = JSON.parse(
   await readFile(resolve(root, "bundles/adf/2.2.0/manifest.json"), "utf8"),
 );
 const azureBundles = await Promise.all(
-  ["1.1.0", "1.1.1", "1.2.0", "1.2.1", "1.3.0", "1.4.0"].map(
+  ["1.1.0", "1.1.1", "1.2.0", "1.2.1", "1.3.0", "1.4.0", "1.5.0"].map(
     async (version) => {
       const path = resolve(
         root,

@@ -65,10 +65,11 @@ ingestron azure upgrade --config ingestron.azure.yaml --to 1.2.1 --yes
 ingestron azure rollback --config ingestron.azure.yaml --yes
 ```
 
-New installations use `1.4.0`, which pins Jobs `0.3.0-preview.1` and adds the
-customer-managed `copy.batch-reconciliation-gate` outcome without adding Azure
-resources. It retains the `landing.batch-contract-gate` outcome from `1.3.0`.
-Hosted Jobs does not accept either customer-managed outcome.
+New installations use `1.5.0`, which pins Jobs `0.4.0-preview.1` and adds the
+customer-managed `schema.baseline-compatibility-gate` outcome without adding
+Azure resources. It retains the landing-batch and post-Copy reconciliation gates
+from earlier bundles. Hosted Jobs does not accept these customer-managed
+outcomes.
 
 Uninstall first reconciles every resource ID against the exact lock. It refuses
 missing or unexpected resources, adopted Entra objects, a target mismatch or a

@@ -1,0 +1,7 @@
+outcome: schema.baseline-compatibility-gate
+source:
+  connection: governed
+  path: contracts/orders/schema-baseline.yaml
+destination:
+  connection: governed
+  path: decisions/schema/orders/
