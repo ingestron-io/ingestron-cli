@@ -1,0 +1,7 @@
+outcome: dataset.reference-integrity-gate
+source:
+  connection: governed
+  path: controls/orders/reference-integrity.yaml
+destination:
+  connection: governed
+  path: decisions/reference-integrity/orders/

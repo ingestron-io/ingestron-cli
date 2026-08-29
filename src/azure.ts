@@ -800,7 +800,7 @@ export async function azureInit(
       4,
     );
   }
-  const version = options.bundleVersion ?? "1.6.0";
+  const version = options.bundleVersion ?? "1.7.0";
   const bundle = await loadBundle(version);
   if (!/^[a-z][a-z0-9-]{0,62}$/.test(options.name ?? "ingestron"))
     throw new CliError("CONFIG_INVALID", "--name must be a safe identifier");
