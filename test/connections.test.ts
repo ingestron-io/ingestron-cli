@@ -214,6 +214,38 @@ test("one unchanged recipe plans through all three profile bundles", async () =>
   }
 });
 
+test("landing batch recipe plans only through customer-managed Azure", async () => {
+  for (const profile of [
+    "hosted-transient",
+    "hosted-registered-storage",
+    "customer-managed",
+  ] as const) {
+    const { directory, configPath } = await fixture(profile);
+    await writeFile(
+      join(directory, "recipe.yaml"),
+      "outcome: landing.batch-contract-gate\nsource:\n  connection: finance\n  path: daily/landing-batch.yaml\ndestination:\n  connection: governed\n  path: quality/daily/\n",
+    );
+    await addBindings(configPath);
+    if (profile !== "customer-managed") {
+      await assert.rejects(
+        () => adfPlan(configPath, azure().runner),
+        (error: unknown) =>
+          error instanceof CliError &&
+          error.code === "RECIPE_PROFILE_UNSUPPORTED",
+      );
+      continue;
+    }
+    const fake = azure();
+    const plan = await adfPlan(configPath, fake.runner);
+    assert.equal(plan.recipe?.outcome, "landing.batch-contract-gate");
+    const whatIf = fake.calls.find((call) => call.includes("what-if"))!;
+    assert.match(
+      whatIf.join("\n"),
+      /recipeYamlPrefix=outcome: landing.batch-contract-gate/,
+    );
+  }
+});
+
 test("written connection config contains aliases but no credentials", async () => {
   const { configPath } = await fixture();
   await addBindings(configPath);

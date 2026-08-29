@@ -53,8 +53,8 @@ ingestron azure rollback --config ingestron.azure.yaml --yes
 
 `1.2.0` keeps the same runtime behaviour while moving the public release and
 digest-pinned worker distribution to the product-owned `ingestron-io` GitHub
-namespace. New installations use `1.2.0`; earlier bundles remain available only
-for explicit compatibility and rollback records.
+namespace. Earlier bundles remain available only for explicit compatibility and
+rollback records.
 
 `1.2.1` intentionally pins the same templates and runtime artefacts as `1.2.0`.
 It is the public no-change lifecycle candidate: upgrade from `1.2.0` to `1.2.1`,
@@ -64,6 +64,10 @@ verify, then roll back to the retained verified `1.2.0` lock:
 ingestron azure upgrade --config ingestron.azure.yaml --to 1.2.1 --yes
 ingestron azure rollback --config ingestron.azure.yaml --yes
 ```
+
+New installations use `1.3.0`, which pins Jobs `0.2.0-preview.1` and adds the
+customer-managed `landing.batch-contract-gate` outcome without adding Azure
+resources. Hosted Jobs does not accept that outcome.
 
 Uninstall first reconciles every resource ID against the exact lock. It refuses
 missing or unexpected resources, adopted Entra objects, a target mismatch or a
