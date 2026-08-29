@@ -39,14 +39,21 @@ finding locations—not record values, allowed lists or thresholds. This outcome
 is customer-managed only and is a bounded release-control check, not proof of
 quality across an entire dataset.
 
+For `dataset.reference-integrity-gate`, the source path is one bounded YAML/JSON
+control manifest containing the parent/entity key tuples and child/reference key
+tuples deliberately extracted by the pipeline. Repeated valid child references
+are allowed. The durable package reports duplicate parents and unmatched
+references using counts and input indexes without retaining key values. This is
+customer-managed only and is not a whole-dataset join or remediation service.
+
 ## Install the technical preview
 
-Download `ingestron-cli-0.3.8-preview.1.tgz` and `SHA256SUMS` from the GitHub
+Download `ingestron-cli-0.3.9-preview.1.tgz` and `SHA256SUMS` from the GitHub
 Release, verify the checksum, then install the archive with pnpm:
 
 ```sh
 shasum -a 256 --check SHA256SUMS
-pnpm add --global ./ingestron-cli-0.3.8-preview.1.tgz
+pnpm add --global ./ingestron-cli-0.3.9-preview.1.tgz
 ingestron version
 ```
 

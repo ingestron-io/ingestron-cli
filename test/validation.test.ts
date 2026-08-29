@@ -118,6 +118,27 @@ test("durable dataset quality recipe keeps records and rules outside CLI config"
   });
 });
 
+test("durable reference integrity recipe keeps key controls outside CLI config", async () => {
+  const directory = await temporary();
+  const path = join(directory, "recipe.yaml");
+  await writeFile(
+    path,
+    "outcome: dataset.reference-integrity-gate\nsource:\n  connection: governed\n  path: controls/orders/reference-integrity.yaml\ndestination:\n  connection: governed\n  path: decisions/reference-integrity/orders/\n",
+  );
+  assert.deepEqual(await validateRecipe(path), {
+    valid: true,
+    outcome: "dataset.reference-integrity-gate",
+    authorFields: [
+      "outcome",
+      "source.connection",
+      "source.path",
+      "destination.connection",
+      "destination.path",
+    ],
+    defaultsResolvedBy: "execution-boundary",
+  });
+});
+
 test("recipe rejects traversal and unexpected fields", async () => {
   const directory = await temporary();
   const path = join(directory, "recipe.yaml");
