@@ -280,6 +280,42 @@ test("copy reconciliation recipe plans only through customer-managed Azure", asy
   }
 });
 
+test("schema baseline recipe plans only through customer-managed Azure", async () => {
+  for (const profile of [
+    "hosted-transient",
+    "hosted-registered-storage",
+    "customer-managed",
+  ] as const) {
+    const { directory, configPath } = await fixture(profile);
+    await writeFile(
+      join(directory, "recipe.yaml"),
+      "outcome: schema.baseline-compatibility-gate\nsource:\n  connection: finance\n  path: contracts/orders/schema-baseline.yaml\ndestination:\n  connection: governed\n  path: decisions/schema/orders/\n",
+    );
+    await addBindings(configPath);
+    if (profile !== "customer-managed") {
+      await assert.rejects(
+        () => adfPlan(configPath, azure().runner),
+        (error: unknown) =>
+          error instanceof CliError &&
+          error.code === "RECIPE_PROFILE_UNSUPPORTED",
+      );
+      continue;
+    }
+    const fake = azure();
+    const plan = await adfPlan(configPath, fake.runner);
+    assert.equal(plan.recipe?.outcome, "schema.baseline-compatibility-gate");
+    const whatIf = fake.calls.find((call) => call.includes("what-if"))!;
+    assert.match(
+      whatIf.join("\n"),
+      /recipeYamlPrefix=outcome: schema.baseline-compatibility-gate/,
+    );
+    assert.match(
+      whatIf.join("\n"),
+      /sourcePath=contracts\/orders\/schema-baseline.yaml/,
+    );
+  }
+});
+
 test("written connection config contains aliases but no credentials", async () => {
   const { configPath } = await fixture();
   await addBindings(configPath);

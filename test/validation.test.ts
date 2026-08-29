@@ -76,6 +76,27 @@ test("durable copy reconciliation recipe keeps control facts outside CLI config"
   });
 });
 
+test("durable schema baseline recipe keeps schemas outside CLI config", async () => {
+  const directory = await temporary();
+  const path = join(directory, "recipe.yaml");
+  await writeFile(
+    path,
+    "outcome: schema.baseline-compatibility-gate\nsource:\n  connection: governed\n  path: contracts/orders/schema-baseline.yaml\ndestination:\n  connection: governed\n  path: decisions/schema/orders/\n",
+  );
+  assert.deepEqual(await validateRecipe(path), {
+    valid: true,
+    outcome: "schema.baseline-compatibility-gate",
+    authorFields: [
+      "outcome",
+      "source.connection",
+      "source.path",
+      "destination.connection",
+      "destination.path",
+    ],
+    defaultsResolvedBy: "execution-boundary",
+  });
+});
+
 test("recipe rejects traversal and unexpected fields", async () => {
   const directory = await temporary();
   const path = join(directory, "recipe.yaml");

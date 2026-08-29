@@ -33,8 +33,8 @@ const imageDigest =
   "0e539a4bbf8d74b83e8b2e479c8e192376c5ebca66cb1cf2cc11b174004e7107";
 const namespaceImageDigest =
   "896991d8f565c8dda1224361a17e89ad405d0f49dee4e961eaa262e5d4db74e7";
-const copyReconciliationImageDigest =
-  "0355cb140bb204e5c88d22568d927cb61d3a19db378a2c71bea691a000ffe558";
+const schemaBaselineImageDigest =
+  "12e00bff5bbfa9a583cb944c33a47836fbb12a655b581265ae38eb2d6cf77660";
 const groupName = "rg-ing-pb040-test";
 const groupId = `/subscriptions/${subscription}/resourceGroups/${groupName}`;
 const integration = {
@@ -361,24 +361,24 @@ test("azure init downloads the pinned Function package and defaults the worker d
   const config = parse(await readFile(path, "utf8"));
   assert.deepEqual(downloads, [
     [
-      "https://github.com/ingestron-io/ingestron-azure/releases/download/v0.4.4-preview.1/ingestron-jobs-0.3.0-preview.1-8db305318e82.zip",
+      "https://github.com/ingestron-io/ingestron-azure/releases/download/v0.4.5-preview.1/ingestron-jobs-0.4.0-preview.1-501be522c371.zip",
       join(
         directory,
         "artifacts",
-        "ingestron-jobs-0.3.0-preview.1-8db305318e82.zip",
+        "ingestron-jobs-0.4.0-preview.1-501be522c371.zip",
       ),
-      "8db305318e8215ab1c2240b83992fae49a430b38b992e7bd592229ead7b81bd5",
+      "501be522c3717490b3f7e264abce117b4a1988a6a421ad8d15efbf180843cc77",
     ],
   ]);
   assert.equal(
     config.artifacts.workerImageSource,
-    `https://ghcr.io/ingestron-io/ingestron-jobs-worker@sha256:${copyReconciliationImageDigest}`,
+    `https://ghcr.io/ingestron-io/ingestron-jobs-worker@sha256:${schemaBaselineImageDigest}`,
   );
   assert.equal(
     config.artifacts.jobsFunctionsPackage,
-    "artifacts/ingestron-jobs-0.3.0-preview.1-8db305318e82.zip",
+    "artifacts/ingestron-jobs-0.4.0-preview.1-501be522c371.zip",
   );
-  assert.equal(config.bundle.version, "1.4.0");
+  assert.equal(config.bundle.version, "1.5.0");
 });
 
 test("plan defers runtime what-if until the Bicep foundation exists", async () => {

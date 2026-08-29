@@ -25,14 +25,20 @@ the digest-pinned control manifest created after Copy, and its destination is th
 customer-owned immutable decision package prefix. Control values do not enter
 CLI configuration or command output. This outcome is customer-managed only.
 
+For `schema.baseline-compatibility-gate`, the source path is one bounded
+YAML/JSON control manifest containing named baseline and candidate JSON Schemas.
+The durable result says publish or review and retains only safe change codes and
+paths; schema bodies are not copied into the result package. This outcome is
+customer-managed only.
+
 ## Install the technical preview
 
-Download `ingestron-cli-0.3.6-preview.1.tgz` and `SHA256SUMS` from the GitHub
+Download `ingestron-cli-0.3.7-preview.1.tgz` and `SHA256SUMS` from the GitHub
 Release, verify the checksum, then install the archive with pnpm:
 
 ```sh
 shasum -a 256 --check SHA256SUMS
-pnpm add --global ./ingestron-cli-0.3.6-preview.1.tgz
+pnpm add --global ./ingestron-cli-0.3.7-preview.1.tgz
 ingestron version
 ```
 

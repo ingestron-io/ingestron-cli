@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "contract": "ingestron.azure-bundle/v1",
+  "bundleVersion": "1.5.0",
+  "profile": "profile-j",
+  "minimumCliVersion": "0.3.7-preview.1",
+  "deploymentModes": ["temporary-proof", "persistent-demo"],
+  "ingressModes": ["disabled", "entra-public"],
+  "monthlyCostCeilingUsd": 50,
+  "templates": {
+    "foundation": "profile-j-foundation.json",
+    "runtime": "profile-j-runtime.json"
+  },
+  "applicationDeploymentHelper": "azure-one-deploy.mjs",
+  "applicationArtifacts": {
+    "jobsFunctions": {
+      "version": "0.4.0-preview.1",
+      "sha256": "501be522c3717490b3f7e264abce117b4a1988a6a421ad8d15efbf180843cc77",
+      "fileName": "ingestron-jobs-0.4.0-preview.1-501be522c371.zip",
+      "downloadUrl": "https://github.com/ingestron-io/ingestron-azure/releases/download/v0.4.5-preview.1/ingestron-jobs-0.4.0-preview.1-501be522c371.zip",
+      "license": "LicenseRef-Ingestron-Runtime-Preview-1.0"
+    },
+    "workerImage": {
+      "registry": "ghcr.io/ingestron-io",
+      "repository": "ingestron-jobs-worker",
+      "sha256": "12e00bff5bbfa9a583cb944c33a47836fbb12a655b581265ae38eb2d6cf77660",
+      "license": "LicenseRef-Ingestron-Runtime-Preview-1.0"
+    }
+  },
+  "licensing": {
+    "source": "Apache-2.0",
+    "runtime": "LicenseRef-Ingestron-Runtime-Preview-1.0",
+    "runtimeLicenseFile": "LICENSE-RUNTIME-PREVIEW.md"
+  },
+  "parameters": {
+    "safeConfiguration": [
+      "tenantId",
+      "subscriptionId",
+      "resourceGroupName",
+      "location",
+      "resourceSuffix",
+      "deploymentMode",
+      "apiIngressMode",
+      "entraApplicationClientId",
+      "allowedClientApplicationIds",
+      "pipelineCallerPrincipalId",
+      "workerImageSource",
+      "jobsFunctionsPackage",
+      "tags"
+    ],
+    "secretsForbidden": true
+  },
+  "outputs": [
+    "endpoint",
+    "audience",
+    "tenantId",
+    "storageAccount",
+    "sourceContainer",
+    "packageContainer"
+  ],
+  "changePolicy": {
+    "foundationAllowed": ["Create", "Ignore", "NoChange"],
+    "runtimeAllowed": ["Create", "Ignore", "NoChange", "Modify"],
+    "deletionAllowed": false,
+    "replacementAllowed": false,
+    "ownedResourceGroup": true
+  },
+  "rollback": {
+    "minimumRetainedLocks": 2,
+    "automatic": false,
+    "requiresCompatibleBundle": true
+  }
+}
