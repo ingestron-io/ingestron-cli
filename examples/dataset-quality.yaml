@@ -1,0 +1,7 @@
+outcome: dataset.quality-policy-gate
+source:
+  connection: governed
+  path: controls/orders/dataset-quality.yaml
+destination:
+  connection: governed
+  path: decisions/quality/orders/

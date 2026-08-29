@@ -19,12 +19,14 @@ export const supportedRecipeOutcomes = [
   "landing.batch-contract-gate",
   "copy.batch-reconciliation-gate",
   "schema.baseline-compatibility-gate",
+  "dataset.quality-policy-gate",
 ] as const;
 
 const customerManagedOnlyOutcomes = new Set([
   "landing.batch-contract-gate",
   "copy.batch-reconciliation-gate",
   "schema.baseline-compatibility-gate",
+  "dataset.quality-policy-gate",
 ]);
 
 const allowedRecipeKeys = new Set(["outcome", "source", "destination"]);
