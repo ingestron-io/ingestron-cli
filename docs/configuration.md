@@ -34,14 +34,17 @@ Recipes use only nested connection references and paths. `recipeVersion`,
 rejected from the v1 author recipe: the owning boundary resolves them. This keeps
 ADF retry/replay safe without requiring every pipeline author to invent values.
 
-Two outcomes are currently recognised:
+Three outcomes are currently recognised:
 
 - `workbook.to-governed-dataset` works through all three placement profiles; and
 - `landing.batch-contract-gate` submits a bounded manifest of digest-pinned
-  CSV/JSON siblings and is accepted only by `customer-managed` installations.
+  CSV/JSON siblings and is accepted only by `customer-managed` installations;
+  and
+- `copy.batch-reconciliation-gate` submits source/destination control facts after
+  Copy and is accepted only by `customer-managed` installations.
 
-The second restriction is enforced during plan, connection plan and install. It
-cannot be used to opt into Hosted Jobs.
+The customer-managed restrictions are enforced during plan, connection plan and
+install. Neither outcome can be used to opt into Hosted Jobs.
 
 Profiles preserve placement rather than change recipe syntax:
 

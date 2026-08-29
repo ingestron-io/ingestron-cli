@@ -17,7 +17,13 @@ export type Recipe = {
 export const supportedRecipeOutcomes = [
   "workbook.to-governed-dataset",
   "landing.batch-contract-gate",
+  "copy.batch-reconciliation-gate",
 ] as const;
+
+const customerManagedOnlyOutcomes = new Set([
+  "landing.batch-contract-gate",
+  "copy.batch-reconciliation-gate",
+]);
 
 const allowedRecipeKeys = new Set(["outcome", "source", "destination"]);
 
@@ -80,12 +86,12 @@ export function parseRecipe(value: unknown): Recipe {
 
 export function assertRecipeProfile(recipe: Recipe, profile: string): void {
   if (
-    recipe.outcome === "landing.batch-contract-gate" &&
+    customerManagedOnlyOutcomes.has(recipe.outcome) &&
     profile !== "customer-managed"
   ) {
     throw new CliError(
       "RECIPE_PROFILE_UNSUPPORTED",
-      "landing.batch-contract-gate requires the customer-managed profile",
+      `${recipe.outcome} requires the customer-managed profile`,
     );
   }
 }

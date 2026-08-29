@@ -54,7 +54,7 @@ const hostedDefaults = {
   endpoint: "https://api.ingestron.io",
   audience: "api://b7144c86-df2a-4e24-a1fa-8b6d995a95d2",
   pipelineName: "ingestron_hosted_job_v1",
-  bundleVersion: "2.1.0",
+  bundleVersion: "2.2.0",
 };
 
 export type AdfInitOptions = {
@@ -538,7 +538,9 @@ const deploymentArgs = (
     const runtimeIntent = serialiseRuntimeJobIntent(recipe);
     args.push(
       `recipeYamlPrefix=${runtimeIntent.prefix}`,
+      `recipeYamlMiddle=${runtimeIntent.middle}`,
       `recipeYamlSuffix=${runtimeIntent.suffix}`,
+      `sourcePath=${recipe.source.path}`,
       `sourceConnectionYaml=${serialiseConnectionRegistration(recipe.source.connection, config.connections[recipe.source.connection]!)}`,
       `destinationConnectionYaml=${serialiseConnectionRegistration(recipe.destination.connection, config.connections[recipe.destination.connection]!)}`,
     );
@@ -632,23 +634,36 @@ function serialiseConnectionRegistration(
 }
 
 function serialiseRuntimeJobIntent(recipe: Recipe) {
-  const marker = "__INGESTRON_ADF_RUN_ID__";
+  const sourceMarker = "__INGESTRON_ADF_SOURCE_PATH__";
+  const runMarker = "__INGESTRON_ADF_RUN_ID__";
   const basePath = recipe.destination.path.replace(/\/+$/, "");
   const runtimeIntent = serialiseJobIntent({
     ...recipe,
+    source: { ...recipe.source, path: sourceMarker },
     destination: {
       ...recipe.destination,
-      path: `${basePath}/${marker}/`,
+      path: `${basePath}/${runMarker}/`,
     },
   });
-  const fragments = runtimeIntent.split(marker);
-  if (fragments.length !== 2)
+  const sourceFragments = runtimeIntent.split(sourceMarker);
+  if (sourceFragments.length !== 2)
     throw new CliError(
       "RECIPE_INVALID",
       "Could not derive the ADF runtime package path",
       2,
     );
-  return { prefix: fragments[0]!, suffix: fragments[1]! };
+  const runFragments = sourceFragments[1]!.split(runMarker);
+  if (runFragments.length !== 2)
+    throw new CliError(
+      "RECIPE_INVALID",
+      "Could not derive the ADF runtime package path",
+      2,
+    );
+  return {
+    prefix: sourceFragments[0]!,
+    middle: runFragments[0]!,
+    suffix: runFragments[1]!,
+  };
 }
 
 const managedResourceNames = (config: AdfConfig) => {

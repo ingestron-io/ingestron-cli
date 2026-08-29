@@ -1,0 +1,7 @@
+outcome: copy.batch-reconciliation-gate
+source:
+  connection: landing
+  path: daily/copy-controls.yaml
+destination:
+  connection: governed
+  path: reconciliation/daily/
