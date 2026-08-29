@@ -25,6 +25,7 @@ import {
 import { CliError } from "./errors.js";
 import { asCliError, emit, type OutputMode } from "./io.js";
 import { checkContract, validateRecipe, verifyPackage } from "./validate.js";
+import { runBlueprint } from "./product.js";
 import {
   azureAdfConfig,
   azureInit,
@@ -51,7 +52,7 @@ const filtered = args.filter(
 );
 const command = filtered.slice(0, 2).join(" ") || "help";
 const docsUrl = "https://docs.ingestron.io/docs/deployment/cli-reference";
-const usage = `Commands: version; recipe validate; contract check; package verify; adf init|migrate|plan|install|status|verify|upgrade|rollback|plan-uninstall|uninstall; adf connection discover|add|plan|test; azure init|plan|install|status|verify|upgrade|rollback|adf-config|plan-uninstall|uninstall. Profiles: ${adfProfiles.join(", ")}. Docs: ${docsUrl}`;
+const usage = `Commands: version; recipe validate; contract check; package verify; product import|requirements|plan|diff|approve|export-odcs|generate|verify; adf init|migrate|plan|install|status|verify|upgrade|rollback|plan-uninstall|uninstall; adf connection discover|add|plan|test; azure init|plan|install|status|verify|upgrade|rollback|adf-config|plan-uninstall|uninstall. Profiles: ${adfProfiles.join(", ")}. Docs: ${docsUrl}`;
 const azureInitUsage =
   "ingestron azure init --subscription <subscription-id> --resource-group <name> --location <region> --resource-suffix <suffix> --deployment-mode <temporary-proof|persistent-demo> --ingress-mode <disabled|entra-public> --entra-application-client-id <id> --allowed-client-application-id <id> --pipeline-caller-principal-id <id> --planned-usd <amount> [--config <path>] [--name <name>] [--expires-on <date>]. Docs: " +
   docsUrl;
@@ -92,6 +93,15 @@ async function run(): Promise<unknown> {
     return checkContract(requiredPath(2, "contract path"));
   if (filtered[0] === "package" && filtered[1] === "verify")
     return verifyPackage(requiredPath(2, "package directory"));
+  if (filtered[0] === "product") {
+    const mapped =
+      filtered[1] === "import"
+        ? "import-adf"
+        : filtered[1] === "requirements"
+          ? "extract-requirements"
+          : (filtered[1] ?? "");
+    return runBlueprint(mapped, filtered.slice(2));
+  }
   if (filtered[0] === "adf") {
     if (filtered[1] === "init") {
       const factoryResourceId = option("--factory-resource-id");

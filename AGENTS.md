@@ -5,6 +5,12 @@ secret-free configuration and ownership locks, stable machine output, local
 validation, and safe orchestration over versioned Ingestron artefacts under
 PB-041/PD-066.
 
+PB-053/PD-080 additionally authorises a plan-only `product` client for the
+separately versioned private Blueprint engine. The CLI may delegate its bounded
+import, requirements, plan, diff, approve, ODCS export, generate and verify
+protocol; it must not copy model or generator semantics and must not expose an
+apply/deploy command.
+
 Contracts owns job/package semantics. `ingestron-azure` owns Profile J Bicep,
 change policy, and deployment helpers. Do not copy those semantics into
 imperative CLI resource creation. Runtime object code remains separately licensed
