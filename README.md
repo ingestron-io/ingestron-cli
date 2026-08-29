@@ -31,14 +31,22 @@ The durable result says publish or review and retains only safe change codes and
 paths; schema bodies are not copied into the result package. This outcome is
 customer-managed only.
 
+For `dataset.quality-policy-gate`, the source path is one bounded YAML/JSON
+control manifest containing the sample records and explicit quality rules to
+evaluate. The gate supports required, non-empty, range, allowed-value and
+unique checks. Its durable package contains only the decision, counts and safe
+finding locations—not record values, allowed lists or thresholds. This outcome
+is customer-managed only and is a bounded release-control check, not proof of
+quality across an entire dataset.
+
 ## Install the technical preview
 
-Download `ingestron-cli-0.3.7-preview.1.tgz` and `SHA256SUMS` from the GitHub
+Download `ingestron-cli-0.3.8-preview.1.tgz` and `SHA256SUMS` from the GitHub
 Release, verify the checksum, then install the archive with pnpm:
 
 ```sh
 shasum -a 256 --check SHA256SUMS
-pnpm add --global ./ingestron-cli-0.3.7-preview.1.tgz
+pnpm add --global ./ingestron-cli-0.3.8-preview.1.tgz
 ingestron version
 ```
 

@@ -97,6 +97,27 @@ test("durable schema baseline recipe keeps schemas outside CLI config", async ()
   });
 });
 
+test("durable dataset quality recipe keeps records and rules outside CLI config", async () => {
+  const directory = await temporary();
+  const path = join(directory, "recipe.yaml");
+  await writeFile(
+    path,
+    "outcome: dataset.quality-policy-gate\nsource:\n  connection: governed\n  path: controls/orders/dataset-quality.yaml\ndestination:\n  connection: governed\n  path: decisions/quality/orders/\n",
+  );
+  assert.deepEqual(await validateRecipe(path), {
+    valid: true,
+    outcome: "dataset.quality-policy-gate",
+    authorFields: [
+      "outcome",
+      "source.connection",
+      "source.path",
+      "destination.connection",
+      "destination.path",
+    ],
+    defaultsResolvedBy: "execution-boundary",
+  });
+});
+
 test("recipe rejects traversal and unexpected fields", async () => {
   const directory = await temporary();
   const path = join(directory, "recipe.yaml");
