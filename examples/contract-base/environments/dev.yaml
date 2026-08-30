@@ -11,9 +11,20 @@ targets:
     workspaceId: 11111111-1111-1111-1111-111111111111
   adf:
     factoryResourceId: /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-ingestron-dev/providers/Microsoft.DataFactory/factories/adf-ingestron-dev
+    replacements:
+      __BIND_SOURCE_LINKED_SERVICE__: ls_finance_source
+      __BIND_TARGET_LINKED_SERVICE__: ls_finance_bronze
+      __BIND_SOURCE_TYPE__: AzureSqlSource
+      __BIND_SINK_TYPE__: AzureSqlSink
+      __BIND_DATASET_TYPE__: AzureSqlTable
+      __BIND_TARGET_DATASET_TYPE__: AzureSqlTable
   databricks:
     workspaceHost: https://adb-1000000000000000.0.azuredatabricks.net
     rootPath: /Workspace/Shared/ingestron/dev
+    replacements:
+      __BIND_JOB_CLUSTER__: ingestron_job_cluster
+      __BIND_SPARK_VERSION__: 15.4.x-scala2.12
+      __BIND_NODE_TYPE_ID__: Standard_DS3_v2
 secretRefs:
   fabricIdentity:
     provider: azure-managed-identity

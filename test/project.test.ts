@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -101,6 +101,16 @@ test("Fabric plan and build are deterministic and independently verifiable", asy
   );
   assert.equal(lock.deployed, false);
   assert.equal(lock.generator.version, "1.0.0");
+  assert.match(
+    await readFile(
+      join(
+        first,
+        "items/nb_fin_dev_orders_land_bronze.Notebook/notebook-content.py",
+      ),
+      "utf8",
+    ),
+    /saveAsTable/,
+  );
   const verification = await verifyGeneration(first);
   assert.equal(verification.valid, true);
 });
@@ -117,7 +127,7 @@ test("ADF and Databricks built-ins generate independently verifiable native sour
     assert.equal(built.target, generator);
     const verification = await verifyGeneration(output);
     assert.equal(verification.valid, true);
-    if (generator === "adf")
+    if (generator === "adf") {
       assert.match(
         await readFile(
           join(output, "factory/pipelines/pl_fin_test_orders.json"),
@@ -125,12 +135,38 @@ test("ADF and Databricks built-ins generate independently verifiable native sour
         ),
         /copy_to_bronze/,
       );
-    else
+      assert.match(
+        await readFile(
+          join(output, "factory/datasets/ds_fin_test_orders_bronze.json"),
+          "utf8",
+        ),
+        /__BIND_TARGET_LINKED_SERVICE__/,
+      );
+    } else {
       assert.match(
         await readFile(join(output, "databricks.yml"), "utf8"),
         /production|development/,
       );
+      assert.match(
+        await readFile(join(output, "src/orders.py"), "utf8"),
+        /saveAsTable/,
+      );
+      assert.match(
+        await readFile(join(output, "src/reconcile.py"), "utf8"),
+        /asset.reconciled/,
+      );
+    }
   }
+});
+
+test("generated source verification rejects a changed declared asset", async () => {
+  const output = await mkdtemp(join(tmpdir(), "ingestron-tampered-build-"));
+  await buildGeneration(base, "dev", "fabric", output);
+  await writeFile(
+    join(output, "items/pl_fin_dev_orders.DataPipeline/pipeline-content.json"),
+    "{}\n",
+  );
+  await assert.rejects(() => verifyGeneration(output), /digest mismatch/);
 });
 
 test("deployment plan is a credential-free customer-side handoff", async () => {
@@ -140,4 +176,10 @@ test("deployment plan is a credential-free customer-side handoff", async () => {
   assert.equal(handoff.requiredExecution, "customer-terminal-or-ci");
   assert.equal(handoff.applyAvailable, false);
   assert.deepEqual(handoff.requiredApprovals, ["semantic", "platform"]);
+  assert.deepEqual(handoff.targetBinding, {
+    platform: "fabric",
+    workspaceId: "33333333-3333-3333-3333-333333333333",
+  });
+  assert.match(String(handoff.targetBindingDigest), /^sha256:[a-f0-9]{64}$/);
+  assert.doesNotMatch(JSON.stringify(handoff), /fabricIdentity|clientId/);
 });
