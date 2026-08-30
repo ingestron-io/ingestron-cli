@@ -87,6 +87,13 @@ ingestron gen verify ../generated-fabric
 ingestron deploy plan examples/contract-base --environment test --generator fabric
 ```
 
+Built-in generators are independently versioned inside the CLI release. The
+private build includes `fabric@1.0.0`, `adf@1.0.0` and `databricks@1.0.0`. Each
+has its own YAML selection and target configuration, may select many products
+and contracts, and produces native, reviewable source rather than applying a
+customer environment. Replace `fabric` in the commands above with `adf` or
+`databricks` to build that target.
+
 `deploy plan` produces a credential-free customer-side handoff and never applies
 infrastructure. Explicit non-secret inputs must be declared in `ingestron.yaml`
 and supplied as `--set name=value`; every resolved input is digest-bound.

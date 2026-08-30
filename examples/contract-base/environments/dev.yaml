@@ -9,6 +9,11 @@ values:
 targets:
   fabric:
     workspaceId: 11111111-1111-1111-1111-111111111111
+  adf:
+    factoryResourceId: /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-ingestron-dev/providers/Microsoft.DataFactory/factories/adf-ingestron-dev
+  databricks:
+    workspaceHost: https://adb-1000000000000000.0.azuredatabricks.net
+    rootPath: /Workspace/Shared/ingestron/dev
 secretRefs:
   fabricIdentity:
     provider: azure-managed-identity

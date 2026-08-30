@@ -105,6 +105,34 @@ test("Fabric plan and build are deterministic and independently verifiable", asy
   assert.equal(verification.valid, true);
 });
 
+test("ADF and Databricks built-ins generate independently verifiable native source", async () => {
+  for (const generator of ["adf", "databricks"] as const) {
+    const plan = await planGeneration(base, "test", generator);
+    assert.equal(plan.generator.implementation, generator);
+    assert.equal(plan.assets.length, 2);
+    const output = await mkdtemp(
+      join(tmpdir(), `ingestron-${generator}-build-`),
+    );
+    const built = await buildGeneration(base, "test", generator, output);
+    assert.equal(built.target, generator);
+    const verification = await verifyGeneration(output);
+    assert.equal(verification.valid, true);
+    if (generator === "adf")
+      assert.match(
+        await readFile(
+          join(output, "factory/pipelines/pl_fin_test_orders.json"),
+          "utf8",
+        ),
+        /copy_to_bronze/,
+      );
+    else
+      assert.match(
+        await readFile(join(output, "databricks.yml"), "utf8"),
+        /production|development/,
+      );
+  }
+});
+
 test("deployment plan is a credential-free customer-side handoff", async () => {
   const handoff = await deploymentPlan(base, "test", "fabric");
   assert.equal(handoff.contract, "ingestron.deployment-handoff/v1");

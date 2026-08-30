@@ -593,7 +593,10 @@ export async function planGeneration(
   if (!config)
     throw new CliError("GENERATOR_MISSING", `Unknown generator ${generatorId}`);
   const implementation = config.implementation;
-  if (implementation !== "fabric")
+  if (
+    typeof implementation !== "string" ||
+    !["fabric", "adf", "databricks"].includes(implementation)
+  )
     throw new CliError(
       "GENERATOR_UNSUPPORTED",
       `Unsupported built-in generator ${String(implementation)}`,
@@ -615,7 +618,15 @@ export async function planGeneration(
     return {
       assetId: id,
       source: isRecord(contract.source) ? contract.source : {},
-      target: { name: assetName(contract, id), type: "fabric-data-pipeline" },
+      target: {
+        name: assetName(contract, id),
+        type:
+          implementation === "fabric"
+            ? "fabric-data-pipeline"
+            : implementation === "adf"
+              ? "adf-pipeline"
+              : "databricks-bundle-resource",
+      },
       controls: isRecord(contract.controls) ? contract.controls : {},
     };
   });
@@ -680,6 +691,160 @@ export async function buildGeneration(
   for (const id of plan.contracts) {
     const asset = plan.assets.find((item) => item.assetId === id)!;
     const name = `pl_${asset.target.name}`;
+    if (plan.generator.implementation === "adf") {
+      const pipelineDirectory = join(root, "factory", "pipelines");
+      const datasetDirectory = join(root, "factory", "datasets");
+      await mkdir(pipelineDirectory, { recursive: true });
+      await mkdir(datasetDirectory, { recursive: true });
+      const datasetName = `ds_${asset.target.name}`;
+      const pipeline = {
+        name,
+        properties: {
+          description: `Generated orchestration for ${id}`,
+          parameters: {
+            watermark_from: { type: "String" },
+            watermark_to: { type: "String" },
+            plan_digest: { type: "String", defaultValue: plan.planDigest },
+          },
+          activities: [
+            {
+              name: "copy_to_bronze",
+              type: "Copy",
+              dependsOn: [],
+              policy: {
+                timeout: "0.12:00:00",
+                retry: 2,
+                retryIntervalInSeconds: 60,
+                secureOutput: true,
+                secureInput: true,
+              },
+              typeProperties: {
+                source: { type: "__BIND_SOURCE_TYPE__" },
+                sink: { type: "__BIND_SINK_TYPE__" },
+              },
+              inputs: [
+                { referenceName: datasetName, type: "DatasetReference" },
+              ],
+              outputs: [
+                {
+                  referenceName: `${datasetName}_bronze`,
+                  type: "DatasetReference",
+                },
+              ],
+            },
+            {
+              name: "reconcile_counts",
+              type: "ExecutePipeline",
+              dependsOn: [
+                {
+                  activity: "copy_to_bronze",
+                  dependencyConditions: ["Succeeded"],
+                },
+              ],
+              typeProperties: {
+                pipeline: {
+                  referenceName: "__BIND_RECONCILIATION_PIPELINE__",
+                  type: "PipelineReference",
+                },
+                waitOnCompletion: true,
+              },
+            },
+          ],
+          annotations: ["generated-by-ingestron", `plan:${plan.planDigest}`],
+        },
+      };
+      const dataset = {
+        name: datasetName,
+        properties: {
+          linkedServiceName: {
+            referenceName: "__BIND_SOURCE_LINKED_SERVICE__",
+            type: "LinkedServiceReference",
+          },
+          annotations: ["generated-by-ingestron"],
+          type: "__BIND_DATASET_TYPE__",
+          typeProperties: {
+            schema: String(asset.source.schema ?? "dbo"),
+            table: String(asset.source.dataset ?? id),
+          },
+        },
+      };
+      await writeJson(join(pipelineDirectory, `${name}.json`), pipeline);
+      await writeJson(join(datasetDirectory, `${datasetName}.json`), dataset);
+      files.push(
+        `factory/pipelines/${name}.json`,
+        `factory/datasets/${datasetName}.json`,
+      );
+      await writeFile(
+        join(root, "contracts", `${id}.yaml`),
+        YAML.stringify(project.contracts[id]),
+      );
+      files.push(`contracts/${id}.yaml`);
+      continue;
+    }
+    if (plan.generator.implementation === "databricks") {
+      const resourceDirectory = join(root, "resources");
+      const sourceDirectory = join(root, "src");
+      await mkdir(resourceDirectory, { recursive: true });
+      await mkdir(sourceDirectory, { recursive: true });
+      const resource = {
+        resources: {
+          jobs: {
+            [name]: {
+              name,
+              tags: {
+                generated_by: "ingestron",
+                plan_digest: plan.planDigest,
+              },
+              tasks: [
+                {
+                  task_key: "land_bronze",
+                  notebook_task: {
+                    notebook_path: `../src/${id}.py`,
+                    base_parameters: {
+                      asset_id: id,
+                      plan_digest: plan.planDigest,
+                    },
+                  },
+                  job_cluster_key: "__BIND_JOB_CLUSTER__",
+                  max_retries: 2,
+                  min_retry_interval_millis: 60_000,
+                },
+                {
+                  task_key: "reconcile",
+                  depends_on: [{ task_key: "land_bronze" }],
+                  notebook_task: {
+                    notebook_path: "../src/reconcile.py",
+                    base_parameters: { asset_id: id },
+                  },
+                  job_cluster_key: "__BIND_JOB_CLUSTER__",
+                },
+              ],
+              job_clusters: [
+                {
+                  job_cluster_key: "__BIND_JOB_CLUSTER__",
+                  new_cluster: { spark_version: "__BIND_SPARK_VERSION__" },
+                },
+              ],
+            },
+          },
+        },
+      };
+      await writeFile(
+        join(resourceDirectory, `${id}.job.yml`),
+        YAML.stringify(resource),
+      );
+      await writeFile(
+        join(sourceDirectory, `${id}.py`),
+        `# Generated source skeleton for ${id}\n# Bind customer-owned source and target tables before deployment.\nasset_id = ${JSON.stringify(id)}\nplan_digest = ${JSON.stringify(plan.planDigest)}\n`,
+      );
+      files.push(`resources/${id}.job.yml`, `src/${id}.py`);
+      await writeFile(
+        join(root, "contracts", `${id}.yaml`),
+        YAML.stringify(project.contracts[id]),
+      );
+      files.push(`contracts/${id}.yaml`);
+      continue;
+    }
     const itemDirectory = join(root, "items", `${name}.DataPipeline`);
     await mkdir(itemDirectory, { recursive: true });
     const pipeline = {
@@ -764,9 +929,43 @@ export async function buildGeneration(
     );
     files.push(`contracts/${id}.yaml`);
   }
+  if (plan.generator.implementation === "adf") {
+    await mkdir(join(root, "factory"), { recursive: true });
+    await writeJson(join(root, "factory", "factory-parameters.json"), {
+      contract: "ingestron.adf-bindings/v1",
+      factoryName: "__BIND_FACTORY_NAME__",
+      sourceLinkedService: "__BIND_SOURCE_LINKED_SERVICE__",
+      targetLinkedService: "__BIND_TARGET_LINKED_SERVICE__",
+      planDigest: plan.planDigest,
+    });
+    files.push("factory/factory-parameters.json");
+  }
+  if (plan.generator.implementation === "databricks") {
+    await writeFile(
+      join(root, "databricks.yml"),
+      YAML.stringify({
+        bundle: { name: project.project.id },
+        include: ["resources/*.yml"],
+        variables: {
+          workspace_host: { description: "Customer Databricks workspace URL" },
+          root_path: { description: "Customer bundle root path" },
+        },
+        targets: {
+          [environment]: {
+            mode: environment === "prod" ? "production" : "development",
+            workspace: {
+              host: "${var.workspace_host}",
+              root_path: "${var.root_path}",
+            },
+          },
+        },
+      }),
+    );
+    files.push("databricks.yml");
+  }
   const manifest = {
     contract: "ingestron.generated-project/v1",
-    target: "fabric",
+    target: plan.generator.implementation,
     environment,
     project: project.project,
     resolutionDigest: project.digest,
@@ -779,7 +978,7 @@ export async function buildGeneration(
   await writeJson(join(root, "generation-plan.json"), plan);
   await writeFile(
     join(root, "README.md"),
-    `# ${project.project.name} — generated Fabric source\n\nGenerated deterministically by Ingestron CLI. This source has not been deployed or validated against a Fabric workspace.\n\n- Environment: ${environment}\n- Plan: ${plan.planDigest}\n- Contracts: ${plan.contracts.length}\n\nUse \`ingestron deploy plan\` to create the customer-side deployment handoff.\n`,
+    `# ${project.project.name} — generated ${plan.generator.implementation} source\n\nGenerated deterministically by Ingestron CLI. This source has not been deployed or validated against a customer target.\n\n- Environment: ${environment}\n- Plan: ${plan.planDigest}\n- Contracts: ${plan.contracts.length}\n\nUse \`ingestron deploy plan\` to create the customer-side deployment handoff.\n`,
   );
   return { ...manifest, outputPath: root };
 }

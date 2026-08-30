@@ -1,0 +1,14 @@
+apiVersion: ingestron.io/v1alpha1
+kind: GeneratorConfig
+metadata:
+  id: adf
+  name: ADF and Synapse Git source
+implementation: adf
+version: 1.0.0
+products:
+  - customer-orders
+contracts:
+  - orders
+  - customers
+target:
+  factoryResourceId: "{{ env.targets.adf.factoryResourceId }}"
