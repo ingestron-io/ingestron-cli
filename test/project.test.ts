@@ -190,3 +190,17 @@ test("deployment plan is a credential-free customer-side handoff", async () => {
   assert.match(String(handoff.targetBindingDigest), /^sha256:[a-f0-9]{64}$/);
   assert.doesNotMatch(JSON.stringify(handoff), /fabricIdentity|clientId/);
 });
+
+test("Synapse reuses the versioned ADF source generator with an exact workspace binding", async () => {
+  const plan = await planGeneration(base, "test", "synapse");
+  assert.equal(plan.generator.implementation, "adf");
+  const handoff = await deploymentPlan(base, "test", "synapse");
+  assert.equal(
+    (handoff.targetBinding as Record<string, unknown>).platform,
+    "synapse",
+  );
+  assert.equal(
+    (handoff.targetBinding as Record<string, unknown>).workspaceName,
+    "synapse-ingestron-test",
+  );
+});

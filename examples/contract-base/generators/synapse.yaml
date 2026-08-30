@@ -1,8 +1,8 @@
 apiVersion: ingestron.io/v1alpha1
 kind: GeneratorConfig
 metadata:
-  id: adf
-  name: Azure Data Factory Git source
+  id: synapse
+  name: Synapse pipeline Git source
 implementation: adf
 version: 1.0.0
 products:
@@ -11,4 +11,4 @@ contracts:
   - orders
   - customers
 target:
-  factoryResourceId: "{{ env.targets.adf.factoryResourceId }}"
+  workspaceName: "{{ env.targets.synapse.workspaceName }}"

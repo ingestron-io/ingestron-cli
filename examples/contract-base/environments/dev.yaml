@@ -11,6 +11,8 @@ targets:
     workspaceId: 11111111-1111-1111-1111-111111111111
   adf:
     factoryResourceId: /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-ingestron-dev/providers/Microsoft.DataFactory/factories/adf-ingestron-dev
+  synapse:
+    workspaceName: synapse-ingestron-dev
     replacements:
       __BIND_SOURCE_LINKED_SERVICE__: ls_finance_source
       __BIND_TARGET_LINKED_SERVICE__: ls_finance_bronze
