@@ -1,0 +1,15 @@
+apiVersion: ingestron.io/v1alpha1
+kind: Environment
+metadata:
+  id: test
+  name: Test
+values:
+  namePrefix: fin_test
+  retentionDays: 30
+targets:
+  fabric:
+    workspaceId: 33333333-3333-3333-3333-333333333333
+secretRefs:
+  fabricIdentity:
+    provider: azure-managed-identity
+    clientId: 44444444-4444-4444-4444-444444444444

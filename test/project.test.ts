@@ -1,0 +1,115 @@
+import assert from "node:assert/strict";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+import YAML from "yaml";
+import {
+  buildGeneration,
+  deploymentPlan,
+  planGeneration,
+  resolveProject,
+  verifyGeneration,
+} from "../src/project.js";
+import { evaluateExpression, renderTemplateValue } from "../src/template.js";
+
+const base = "examples/contract-base";
+
+test("template expressions preserve types, use missing-only defaults and declared values", () => {
+  const context = {
+    env: { values: { count: 0, enabled: false, empty: "" } },
+    inputs: { releaseName: "candidate" },
+  };
+  assert.equal(renderTemplateValue("{{ env.values.count }}", context), 0);
+  assert.equal(renderTemplateValue("{{ env.values.enabled }}", context), false);
+  assert.equal(
+    renderTemplateValue(
+      "{{ env.values.empty | default('fallback') }}",
+      context,
+    ),
+    "",
+  );
+  assert.equal(
+    renderTemplateValue("release-{{ inputs.releaseName }}", context),
+    "release-candidate",
+  );
+  assert.equal(
+    evaluateExpression(
+      "env.values.count == 0 and not env.values.enabled",
+      context,
+    ),
+    true,
+  );
+  assert.throws(
+    () => renderTemplateValue("{{ env.values.unknown }}", context),
+    /Missing value/,
+  );
+});
+
+test("contract base resolves references, environments and typed declared inputs", async () => {
+  const project = await resolveProject(base, "dev", {
+    releaseName: "candidate-1",
+    includeMaintenance: "false",
+  });
+  assert.equal(project.contract, "ingestron.contract-base-resolution/v1");
+  assert.equal(project.project.id, "finance-platform");
+  assert.deepEqual(Object.keys(project.products), ["customer-orders"]);
+  assert.deepEqual(Object.keys(project.contracts), ["customers", "orders"]);
+  assert.equal(project.products["customer-orders"]!.release, "candidate-1");
+  assert.equal(
+    (project.contracts.orders!.target as Record<string, unknown>).name,
+    "fin_dev_orders",
+  );
+  assert.equal(
+    (project.contracts.orders!.controls as Record<string, unknown>)
+      .retentionDays,
+    14,
+  );
+  assert.equal(
+    (project.contracts.orders!.controls as Record<string, unknown>).maintenance,
+    false,
+  );
+  assert.match(project.digest, /^sha256:[a-f0-9]{64}$/);
+  await assert.rejects(
+    () => resolveProject(base, "dev", { undeclared: "value" }),
+    /Undeclared/,
+  );
+});
+
+test("Fabric plan and build are deterministic and independently verifiable", async () => {
+  const plan = await planGeneration(base, "dev", "fabric");
+  assert.equal(plan.generator.implementation, "fabric");
+  assert.equal(plan.assets.length, 2);
+  assert.match(plan.planDigest, /^sha256:[a-f0-9]{64}$/);
+
+  const first = await mkdtemp(join(tmpdir(), "ingestron-build-a-"));
+  const second = await mkdtemp(join(tmpdir(), "ingestron-build-b-"));
+  await buildGeneration(base, "dev", "fabric", first);
+  await buildGeneration(base, "dev", "fabric", second);
+  assert.equal(
+    await readFile(
+      join(first, "definitions/pl_fin_dev_orders.create.json"),
+      "utf8",
+    ),
+    await readFile(
+      join(second, "definitions/pl_fin_dev_orders.create.json"),
+      "utf8",
+    ),
+  );
+  const lock = YAML.parse(
+    await readFile(join(first, "ingestron.lock.yaml"), "utf8"),
+  );
+  assert.equal(lock.deployed, false);
+  assert.equal(lock.generator.version, "1.0.0");
+  const verification = await verifyGeneration(first);
+  assert.equal(verification.valid, true);
+});
+
+test("deployment plan is a credential-free customer-side handoff", async () => {
+  const handoff = await deploymentPlan(base, "test", "fabric");
+  assert.equal(handoff.contract, "ingestron.deployment-handoff/v1");
+  assert.equal(handoff.mutatesTarget, false);
+  assert.equal(handoff.requiredExecution, "customer-terminal-or-ci");
+  assert.equal(handoff.applyAvailable, false);
+  assert.deepEqual(handoff.requiredApprovals, ["semantic", "platform"]);
+});

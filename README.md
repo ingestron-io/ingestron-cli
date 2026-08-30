@@ -64,9 +64,32 @@ preview channel.
 
 ```text
 ingestron recipe validate
+ingestron project validate|resolve <contract-base> --environment <id>
+ingestron gen plan|build <contract-base> --environment <id> --generator <id>
+ingestron gen verify <generated-directory>
+ingestron deploy plan <contract-base> --environment <id> --generator <id>
 ingestron adf init|plan|install|status|verify|upgrade|rollback|plan-uninstall|uninstall
 ingestron azure init|plan|install|status|verify|upgrade|rollback|adf-config|plan-uninstall|uninstall
 ```
+
+The private PB-056 contract-base workflow uses one Git-ready directory containing
+multi-file products, contracts, standards, generator configuration and explicit
+environment YAML. `$ref` composes values; constrained Jinja-style `{{ ... }}`
+expressions can read the selected `env` and declared typed `inputs`. Ambient
+process environment variables, secrets, I/O and arbitrary functions are not
+available. The same commands are used by Studio, a terminal and CI:
+
+```sh
+ingestron project validate examples/contract-base --environment dev
+ingestron gen plan examples/contract-base --environment dev --generator fabric
+ingestron gen build examples/contract-base --environment dev --generator fabric --out ../generated-fabric
+ingestron gen verify ../generated-fabric
+ingestron deploy plan examples/contract-base --environment test --generator fabric
+```
+
+`deploy plan` produces a credential-free customer-side handoff and never applies
+infrastructure. Explicit non-secret inputs must be declared in `ingestron.yaml`
+and supplied as `--set name=value`; every resolved input is digest-bound.
 
 The private PB-054 product-engineering client also delegates to an independently
 installed Blueprint engine:
@@ -82,10 +105,11 @@ ingestron product generate --plan plan.json --approval approval.json --plugin ..
 ingestron product verify --out generated --plugin ../ingestron-plugin-fabric
 ```
 
-`--target` accepts `fabric`, `adf-synapse` or `databricks`. The CLI copies no
-Blueprint or generator semantics and exposes no product `apply` or `deploy`
-command. This workflow remains a local private proof and is not part of the
-public technical-preview support promise.
+The historical `product` delegation accepts `fabric`, `adf-synapse` or
+`databricks`. It remains for PB-054 compatibility while its proved generators
+migrate into the versioned built-in CLI modules. Neither workflow exposes a
+target apply in this private slice, and neither is part of the public
+technical-preview support promise.
 
 ADF config maps logical recipe connections to existing linked services. It needs
 no Ingestron global parameters and stores no connection string, key, token, SAS,

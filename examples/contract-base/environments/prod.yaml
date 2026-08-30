@@ -1,0 +1,15 @@
+apiVersion: ingestron.io/v1alpha1
+kind: Environment
+metadata:
+  id: prod
+  name: Production
+values:
+  namePrefix: fin_prod
+  retentionDays: 90
+targets:
+  fabric:
+    workspaceId: 55555555-5555-5555-5555-555555555555
+secretRefs:
+  fabricIdentity:
+    provider: azure-managed-identity
+    clientId: 66666666-6666-6666-6666-666666666666

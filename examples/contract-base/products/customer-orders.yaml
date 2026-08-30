@@ -1,0 +1,12 @@
+apiVersion: opendataproducts.org/v4.1.0
+kind: DataProduct
+metadata:
+  id: customer-orders
+  name: Customer orders
+  domain: commerce
+  owner: Data Engineering
+description: Governed customer-order data for analytics and reporting.
+contracts:
+  - contract://orders
+  - contract://customers
+release: "{{ inputs.releaseName }}"

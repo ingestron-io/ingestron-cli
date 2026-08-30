@@ -1,0 +1,33 @@
+apiVersion: datacontract.com/v1
+kind: DataContract
+metadata:
+  id: orders
+  name: Customer orders
+  version: 1.0.0
+description: Canonical order header placed through digital or assisted channels.
+source:
+  platform: adf
+  dataset: landing.orders
+target:
+  name: '{{ env.values.namePrefix | default("dev") }}_orders'
+  layer: bronze
+schema:
+  fields:
+    - name: order_id
+      type: string
+      required: true
+    - name: customer_id
+      type: string
+      required: true
+    - name: amount
+      type: decimal(18,2)
+      required: true
+    - name: currency
+      type: string
+      required: true
+controls:
+  naming:
+    $ref: standard://platform#/naming
+  reconciliation: source-target-count
+  retentionDays: "{{ env.values.retentionDays | default(30) }}"
+  maintenance: "{{ inputs.includeMaintenance }}"

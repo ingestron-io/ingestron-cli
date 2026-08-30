@@ -1,0 +1,14 @@
+apiVersion: ingestron.io/v1alpha1
+kind: StandardsPack
+metadata:
+  id: platform
+  name: Platform engineering standards
+naming:
+  case: snake_case
+  maximumLength: 128
+  reservedWords:
+    - select
+    - table
+logging:
+  includePayload: false
+  correlationId: required
