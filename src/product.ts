@@ -3,7 +3,9 @@ import { CliError } from "./errors.js";
 
 const allowed = new Set([
   "import-adf",
+  "import-inventory",
   "extract-requirements",
+  "resolve-requirements",
   "plan",
   "diff",
   "approve",

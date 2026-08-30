@@ -22,3 +22,25 @@ test("CLI delegates a bounded product command using machine output", async () =>
 test("CLI refuses unknown product commands", async () => {
   await assert.rejects(() => runBlueprint("apply", []), /unsupported/);
 });
+
+test("CLI permits review commands but never infrastructure apply", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "ingestron-product-review-"));
+  const executable = join(dir, "blueprint");
+  await writeFile(
+    executable,
+    "#!/bin/sh\nprintf '%s\\n' '{\"contract\":\"ingestron.requirement-resolution/v1\"}'\n",
+  );
+  await chmod(executable, 0o700);
+  assert.deepEqual(
+    await runBlueprint(
+      "resolve-requirements",
+      ["--proposals", "safe.json"],
+      executable,
+    ),
+    { contract: "ingestron.requirement-resolution/v1" },
+  );
+  await assert.rejects(
+    () => runBlueprint("deploy", [], executable),
+    /unsupported/,
+  );
+});

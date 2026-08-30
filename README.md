@@ -68,6 +68,25 @@ ingestron adf init|plan|install|status|verify|upgrade|rollback|plan-uninstall|un
 ingestron azure init|plan|install|status|verify|upgrade|rollback|adf-config|plan-uninstall|uninstall
 ```
 
+The private PB-054 product-engineering client also delegates to an independently
+installed Blueprint engine:
+
+```text
+ingestron product import --inventory exported-metadata.json --out blueprint.json
+ingestron product requirements --source requirements.docx --out proposals.json
+ingestron product resolve --proposals proposals.json --decisions decisions.json --out resolution.json
+ingestron product plan --blueprint blueprint.json --standards standards.json --target fabric --out plan.json
+ingestron product diff --before approved-plan.json --after plan.json
+ingestron product approve --plan plan.json --out approval.json
+ingestron product generate --plan plan.json --approval approval.json --plugin ../ingestron-plugin-fabric --out generated
+ingestron product verify --out generated --plugin ../ingestron-plugin-fabric
+```
+
+`--target` accepts `fabric`, `adf-synapse` or `databricks`. The CLI copies no
+Blueprint or generator semantics and exposes no product `apply` or `deploy`
+command. This workflow remains a local private proof and is not part of the
+public technical-preview support promise.
+
 ADF config maps logical recipe connections to existing linked services. It needs
 no Ingestron global parameters and stores no connection string, key, token, SAS,
 or service-principal secret. Customer-managed Azure initialisation requires an
