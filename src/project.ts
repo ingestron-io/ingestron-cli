@@ -80,7 +80,11 @@ export type GenerationPlan = {
   assets: Array<{
     assetId: string;
     source: Record<string, unknown>;
-    target: { name: string; type: string };
+    target: {
+      name: string;
+      type: string;
+      configuration: Record<string, unknown>;
+    };
     controls: Record<string, unknown>;
   }>;
   planDigest: string;
@@ -615,6 +619,9 @@ export async function planGeneration(
       throw new CliError("GENERATOR_SELECTION", `Unknown contract ${id}`);
   const assets = contracts.map((id) => {
     const contract = project.contracts[id]!;
+    const targetConfiguration = isRecord(contract.target)
+      ? contract.target
+      : {};
     return {
       assetId: id,
       source: isRecord(contract.source) ? contract.source : {},
@@ -626,6 +633,7 @@ export async function planGeneration(
             : implementation === "adf"
               ? "adf-pipeline"
               : "databricks-bundle-resource",
+        configuration: targetConfiguration,
       },
       controls: isRecord(contract.controls) ? contract.controls : {},
     };
@@ -695,9 +703,34 @@ export async function buildGeneration(
       const pipelineDirectory = join(root, "factory", "pipelines");
       const datasetDirectory = join(root, "factory", "datasets");
       await mkdir(pipelineDirectory, { recursive: true });
-      await mkdir(datasetDirectory, { recursive: true });
+      const sourceAdf = isRecord(asset.source.adf) ? asset.source.adf : {};
+      const targetAdf = isRecord(asset.target.configuration.adf)
+        ? asset.target.configuration.adf
+        : {};
+      const existingSource = typeof sourceAdf.datasetReference === "string";
+      const existingTarget = typeof targetAdf.datasetReference === "string";
+      if (!existingSource || !existingTarget)
+        await mkdir(datasetDirectory, { recursive: true });
       const datasetName = `ds_${asset.target.name}`;
       const bronzeDatasetName = `${datasetName}_bronze`;
+      const sourceReference = existingSource
+        ? sourceAdf.datasetReference
+        : datasetName;
+      const targetReference = existingTarget
+        ? targetAdf.datasetReference
+        : bronzeDatasetName;
+      const sourceParameters = isRecord(sourceAdf.parameters)
+        ? sourceAdf.parameters
+        : undefined;
+      const targetParameters = isRecord(targetAdf.parameters)
+        ? targetAdf.parameters
+        : undefined;
+      const reconciliationMetric =
+        asset.controls.reconciliation === "file-count" ? "files" : "rows";
+      const readMetric =
+        reconciliationMetric === "files" ? "filesRead" : "rowsRead";
+      const writtenMetric =
+        reconciliationMetric === "files" ? "filesWritten" : "rowsCopied";
       const pipeline = {
         name,
         properties: {
@@ -720,21 +753,31 @@ export async function buildGeneration(
                 secureInput: true,
               },
               typeProperties: {
-                source: { type: "__BIND_SOURCE_TYPE__" },
-                sink: { type: "__BIND_SINK_TYPE__" },
+                source: isRecord(sourceAdf.source)
+                  ? sourceAdf.source
+                  : { type: "__BIND_SOURCE_TYPE__" },
+                sink: isRecord(targetAdf.sink)
+                  ? targetAdf.sink
+                  : { type: "__BIND_SINK_TYPE__" },
               },
+              validateDataConsistency: true,
               inputs: [
-                { referenceName: datasetName, type: "DatasetReference" },
+                {
+                  referenceName: sourceReference,
+                  type: "DatasetReference",
+                  ...(sourceParameters ? { parameters: sourceParameters } : {}),
+                },
               ],
               outputs: [
                 {
-                  referenceName: `${datasetName}_bronze`,
+                  referenceName: targetReference,
                   type: "DatasetReference",
+                  ...(targetParameters ? { parameters: targetParameters } : {}),
                 },
               ],
             },
             {
-              name: "reconcile_counts",
+              name: `reconcile_${reconciliationMetric}_counts`,
               type: "IfCondition",
               dependsOn: [
                 {
@@ -745,8 +788,7 @@ export async function buildGeneration(
               typeProperties: {
                 expression: {
                   type: "Expression",
-                  value:
-                    "@equals(activity('copy_to_bronze').output.rowsRead, activity('copy_to_bronze').output.rowsCopied)",
+                  value: `@equals(activity('copy_to_bronze').output.${readMetric}, activity('copy_to_bronze').output.${writtenMetric})`,
                 },
                 ifTrueActivities: [],
                 ifFalseActivities: [
@@ -755,8 +797,7 @@ export async function buildGeneration(
                     type: "Fail",
                     typeProperties: {
                       errorCode: "INGESTRON_RECONCILIATION_FAILED",
-                      message:
-                        "Copy rowsRead and rowsCopied differ; do not promote this release.",
+                      message: `Copy ${readMetric} and ${writtenMetric} differ; do not promote this release.`,
                     },
                   },
                 ],
@@ -799,16 +840,18 @@ export async function buildGeneration(
         },
       };
       await writeJson(join(pipelineDirectory, `${name}.json`), pipeline);
-      await writeJson(join(datasetDirectory, `${datasetName}.json`), dataset);
-      await writeJson(
-        join(datasetDirectory, `${bronzeDatasetName}.json`),
-        bronzeDataset,
-      );
-      files.push(
-        `factory/pipelines/${name}.json`,
-        `factory/datasets/${datasetName}.json`,
-        `factory/datasets/${bronzeDatasetName}.json`,
-      );
+      files.push(`factory/pipelines/${name}.json`);
+      if (!existingSource) {
+        await writeJson(join(datasetDirectory, `${datasetName}.json`), dataset);
+        files.push(`factory/datasets/${datasetName}.json`);
+      }
+      if (!existingTarget) {
+        await writeJson(
+          join(datasetDirectory, `${bronzeDatasetName}.json`),
+          bronzeDataset,
+        );
+        files.push(`factory/datasets/${bronzeDatasetName}.json`);
+      }
       await writeFile(
         join(root, "contracts", `${id}.yaml`),
         YAML.stringify(project.contracts[id]),

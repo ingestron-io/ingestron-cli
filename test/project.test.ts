@@ -137,6 +137,13 @@ test("ADF and Databricks built-ins generate independently verifiable native sour
       );
       assert.match(
         await readFile(
+          join(output, "factory/pipelines/pl_fin_test_orders.json"),
+          "utf8",
+        ),
+        /validateDataConsistency/,
+      );
+      assert.match(
+        await readFile(
           join(output, "factory/datasets/ds_fin_test_orders_bronze.json"),
           "utf8",
         ),
