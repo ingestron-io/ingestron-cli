@@ -75,7 +75,7 @@ installed Blueprint engine:
 ingestron product import --inventory exported-metadata.json --out blueprint.json
 ingestron product requirements --source requirements.docx --out proposals.json
 ingestron product resolve --proposals proposals.json --decisions decisions.json --out resolution.json
-ingestron product plan --blueprint blueprint.json --standards standards.json --target fabric --out plan.json
+ingestron product plan --blueprint blueprint.json --resolution resolution.json --standards standards.json --target fabric --out plan.json
 ingestron product diff --before approved-plan.json --after plan.json
 ingestron product approve --plan plan.json --out approval.json
 ingestron product generate --plan plan.json --approval approval.json --plugin ../ingestron-plugin-fabric --out generated
