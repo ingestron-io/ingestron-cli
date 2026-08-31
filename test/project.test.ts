@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -74,6 +74,64 @@ test("contract base resolves references, environments and typed declared inputs"
     () => resolveProject(base, "dev", { undeclared: "value" }),
     /Undeclared/,
   );
+});
+
+test("contract bases support hundreds of separately reviewable contracts", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ingestron-large-base-"));
+  for (const directory of [
+    "products",
+    "contracts",
+    "standards",
+    "generators",
+    "environments",
+  ])
+    await mkdir(join(root, directory));
+  await writeFile(
+    join(root, "ingestron.yaml"),
+    YAML.stringify({
+      apiVersion: "ingestron.io/v1alpha1",
+      kind: "ContractBase",
+      metadata: { id: "large-estate", name: "Large estate" },
+    }),
+  );
+  await writeFile(
+    join(root, "environments/dev.yaml"),
+    YAML.stringify({
+      apiVersion: "ingestron.io/v1alpha1",
+      kind: "Environment",
+      metadata: { id: "dev", name: "Development" },
+      values: { namePrefix: "large_dev" },
+    }),
+  );
+  const contractIds = Array.from(
+    { length: 500 },
+    (_, index) => `source-${String(index + 1).padStart(4, "0")}`,
+  );
+  await Promise.all(
+    contractIds.map((id) =>
+      writeFile(
+        join(root, "contracts", `${id}.yaml`),
+        YAML.stringify({
+          apiVersion: "datacontract.com/v1",
+          kind: "DataContract",
+          metadata: { id, name: id, version: "1.0.0" },
+          schema: { fields: [{ name: "id", type: "string", required: true }] },
+        }),
+      ),
+    ),
+  );
+  await writeFile(
+    join(root, "products/large-estate.yaml"),
+    YAML.stringify({
+      apiVersion: "opendataproducts.org/v4.1.0",
+      kind: "DataProduct",
+      metadata: { id: "large-estate", name: "Large estate" },
+      contracts: contractIds.map((id) => `contract://${id}`),
+    }),
+  );
+  const resolution = await resolveProject(root, "dev");
+  assert.equal(Object.keys(resolution.contracts).length, 500);
+  assert.ok(resolution.sourceFiles.length > 500);
 });
 
 test("Fabric plan and build are deterministic and independently verifiable", async () => {

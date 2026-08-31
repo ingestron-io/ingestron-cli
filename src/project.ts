@@ -13,8 +13,9 @@ import YAML from "yaml";
 import { CliError } from "./errors.js";
 import { renderTemplateValue } from "./template.js";
 
-const MAX_FILES = 256;
+const MAX_FILES = 10_000;
 const MAX_FILE_BYTES = 1_048_576;
+const MAX_TOTAL_BYTES = 128 * 1_048_576;
 const MAX_NODES = 100_000;
 const MAX_DEPTH = 64;
 const ID = /^[a-z][a-z0-9._-]{0,127}$/;
@@ -366,6 +367,7 @@ export async function resolveProject(
   const sourceFiles: ProjectResolution["sourceFiles"] = [
     { path: manifestFile.relativePath, digest: digest(manifestFile.bytes) },
   ];
+  let totalBytes = manifestFile.bytes.length;
   const documents: Document[] = [];
   const byPath = new Map<string, Document>();
   const byCategory = new Map<Category, Map<string, Document>>();
@@ -374,6 +376,12 @@ export async function resolveProject(
     byCategory.set(category, registry);
     for (const path of await yamlFiles(root, directories[category])) {
       const file = await readSafeYaml(root, path);
+      totalBytes += file.bytes.length;
+      if (sourceFiles.length >= MAX_FILES || totalBytes > MAX_TOTAL_BYTES)
+        throw new CliError(
+          "PROJECT_LIMIT",
+          `Contract base exceeds ${MAX_FILES} YAML files or 128 MiB`,
+        );
       if (!isRecord(file.value))
         throw new CliError("PROJECT_INVALID", `${path} must contain a mapping`);
       const id = documentId(file.value, path);
