@@ -8,7 +8,15 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
-import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 import YAML from "yaml";
 import { CliError } from "./errors.js";
 import { renderTemplateValue } from "./template.js";
@@ -131,7 +139,10 @@ async function safeRoot(path: string): Promise<string> {
 
 function inside(root: string, path: string): boolean {
   const value = relative(root, path);
-  return value === "" || (!value.startsWith(`..${sep}`) && value !== "..");
+  return (
+    value === "" ||
+    (!isAbsolute(value) && !value.startsWith(`..${sep}`) && value !== "..")
+  );
 }
 
 async function readSafeYaml(

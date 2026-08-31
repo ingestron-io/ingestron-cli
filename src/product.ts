@@ -18,6 +18,7 @@ export async function runBlueprint(
   command: string,
   args: string[],
   executable = process.env.INGESTRON_BLUEPRINT_BIN ?? "ingestron-blueprint",
+  workingDirectory?: string,
 ): Promise<unknown> {
   if (!allowed.has(command))
     throw new CliError("USAGE", `unsupported product command ${command}`);
@@ -27,6 +28,7 @@ export async function runBlueprint(
     let stdout = "";
     let stderr = "";
     const child = spawn(executable, [command, ...args], {
+      cwd: workingDirectory,
       stdio: ["ignore", "pipe", "pipe"],
       env: { PATH: process.env.PATH ?? "" },
       shell: false,
