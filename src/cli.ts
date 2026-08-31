@@ -22,6 +22,7 @@ import {
   adfConnectionPlan,
   adfConnectionTest,
 } from "./connections.js";
+import { adfInventoryExport } from "./adf-inventory.js";
 import { CliError } from "./errors.js";
 import { asCliError, emit, type OutputMode } from "./io.js";
 import { checkContract, validateRecipe, verifyPackage } from "./validate.js";
@@ -72,7 +73,7 @@ const filtered = args.filter(
 );
 const command = filtered.slice(0, 2).join(" ") || "help";
 const docsUrl = "https://docs.ingestron.io/docs/deployment/cli-reference";
-const usage = `Commands: version; recipe validate; contract check; package verify; project validate|resolve; gen plan|build|verify; deploy plan; product import|requirements|resolve|plan|diff|approve|export-odcs|generate|verify; adf init|migrate|plan|install|status|verify|upgrade|rollback|plan-uninstall|uninstall; adf connection discover|add|plan|test; azure init|plan|install|status|verify|upgrade|rollback|adf-config|plan-uninstall|uninstall. Profiles: ${adfProfiles.join(", ")}. Docs: ${docsUrl}`;
+const usage = `Commands: version; recipe validate; contract check; package verify; project validate|resolve; gen plan|build|verify; deploy plan; product import|requirements|resolve|plan|diff|approve|export-odcs|generate|verify; adf init|migrate|plan|install|status|verify|upgrade|rollback|plan-uninstall|uninstall; adf connection discover|add|plan|test; adf inventory export; azure init|plan|install|status|verify|upgrade|rollback|adf-config|plan-uninstall|uninstall. Profiles: ${adfProfiles.join(", ")}. Docs: ${docsUrl}`;
 const azureInitUsage =
   "ingestron azure init --subscription <subscription-id> --resource-group <name> --location <region> --resource-suffix <suffix> --deployment-mode <temporary-proof|persistent-demo> --ingress-mode <disabled|entra-public> --entra-application-client-id <id> --allowed-client-application-id <id> --pipeline-caller-principal-id <id> --planned-usd <amount> [--config <path>] [--name <name>] [--expires-on <date>]. Docs: " +
   docsUrl;
@@ -292,6 +293,16 @@ async function run(): Promise<unknown> {
     }
     const config = option("--config");
     if (!config) throw new CliError("USAGE", "--config is required");
+    if (filtered[1] === "inventory") {
+      if (filtered[2] !== "export")
+        throw new CliError("USAGE", "Commands: adf inventory export");
+      return adfInventoryExport(
+        config,
+        requiredOption("--product"),
+        option("--domain") ?? "default",
+        requiredOption("--out"),
+      );
+    }
     if (filtered[1] === "migrate") {
       const profile = requiredOption("--profile") as AdfProfile;
       return adfMigrate(

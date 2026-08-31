@@ -112,6 +112,21 @@ ingestron product generate --plan plan.json --approval approval.json --plugin ..
 ingestron product verify --out generated --plugin ../ingestron-plugin-fabric
 ```
 
+Export a bounded, source-row-free ADF dataset inventory from the exact factory
+already pinned in `ingestron.yaml`, then import it into the product workflow:
+
+```sh
+ingestron adf inventory export --config ingestron.yaml \
+  --product finance-platform --domain finance --out adf-inventory.json
+ingestron product import --inventory adf-inventory.json --out blueprint.json
+```
+
+The export checks the active Azure subscription, reads dataset definitions only,
+keeps names, types, linked-service references, locations and declared schema,
+and drops parameters, annotations, credential properties and source rows. It
+refuses to overwrite an existing file and is bounded to 5,000 datasets, 10,000
+columns per dataset and 20 MiB of sanitised output.
+
 The historical `product` delegation accepts `fabric`, `adf-synapse` or
 `databricks`. It remains for PB-054 compatibility while its proved generators
 migrate into the versioned built-in CLI modules. Neither workflow exposes a

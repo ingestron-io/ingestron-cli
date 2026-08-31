@@ -43,6 +43,8 @@ remains the default.
 ingestron adf init --factory-resource-id /subscriptions/.../factories/my-adf \
   --profile hosted-transient --recipe recipe.yaml
 ingestron adf connection discover --config ingestron.yaml
+ingestron adf inventory export --config ingestron.yaml \
+  --product finance-platform --domain finance --out adf-inventory.json
 ingestron adf connection add finance --config ingestron.yaml \
   --linked-service finance-landing --store blob \
   --account '<storage-account-name>' \
