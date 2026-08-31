@@ -4,7 +4,7 @@ metadata:
   id: adf
   name: Azure Data Factory Git source
 implementation: adf
-version: 1.0.0
+version: 1.1.0
 products:
   - customer-orders
 contracts:
@@ -12,3 +12,9 @@ contracts:
   - customers
 target:
   factoryResourceId: "{{ env.targets.adf.factoryResourceId }}"
+schedule:
+  enabled: true
+  activation: manual
+  frequency: Day
+  interval: 1
+  timeZone: UTC

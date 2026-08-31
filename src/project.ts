@@ -686,6 +686,71 @@ function stableUuid(value: string): string {
   return `${hex.slice(0, 8).join("")}-${hex.slice(8, 12).join("")}-${hex.slice(12, 16).join("")}-${hex.slice(16, 20).join("")}-${hex.slice(20).join("")}`;
 }
 
+type AdfSchedule = {
+  frequency: "Minute" | "Hour" | "Day" | "Week" | "Month";
+  interval: number;
+  timeZone?: string;
+  startTime?: string;
+};
+
+function adfSchedule(config: Record<string, unknown>): AdfSchedule | undefined {
+  const schedule = isRecord(config.schedule) ? config.schedule : undefined;
+  if (!schedule || schedule.enabled === false) return undefined;
+  if (schedule.enabled !== true)
+    throw new CliError(
+      "GENERATOR_INVALID",
+      "ADF schedule.enabled must be declared as true or false",
+    );
+  if (schedule.activation !== "manual")
+    throw new CliError(
+      "GENERATOR_INVALID",
+      "ADF schedule.activation must be manual; generated triggers deploy stopped",
+    );
+  const frequency = schedule.frequency;
+  if (
+    typeof frequency !== "string" ||
+    !(["Minute", "Hour", "Day", "Week", "Month"] as const).includes(
+      frequency as AdfSchedule["frequency"],
+    )
+  )
+    throw new CliError(
+      "GENERATOR_INVALID",
+      "ADF schedule.frequency must be Minute, Hour, Day, Week or Month",
+    );
+  const interval = schedule.interval;
+  if (
+    !Number.isSafeInteger(interval) ||
+    Number(interval) < 1 ||
+    Number(interval) > 1000
+  )
+    throw new CliError(
+      "GENERATOR_INVALID",
+      "ADF schedule.interval must be an integer between 1 and 1000",
+    );
+  const timeZone = schedule.timeZone;
+  if (
+    timeZone !== undefined &&
+    (typeof timeZone !== "string" ||
+      !/^[A-Za-z0-9_+./ -]{1,100}$/.test(timeZone))
+  )
+    throw new CliError("GENERATOR_INVALID", "ADF schedule.timeZone is invalid");
+  const startTime = schedule.startTime;
+  if (
+    startTime !== undefined &&
+    (typeof startTime !== "string" || !Number.isFinite(Date.parse(startTime)))
+  )
+    throw new CliError(
+      "GENERATOR_INVALID",
+      "ADF schedule.startTime must be an ISO timestamp",
+    );
+  return {
+    frequency: frequency as AdfSchedule["frequency"],
+    interval: Number(interval),
+    ...(typeof timeZone === "string" ? { timeZone } : {}),
+    ...(typeof startTime === "string" ? { startTime } : {}),
+  };
+}
+
 async function writeJson(path: string, value: unknown): Promise<void> {
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`);
 }
@@ -714,6 +779,11 @@ export async function buildGeneration(
   await mkdir(join(root, "definitions"), { recursive: true });
   await mkdir(join(root, "contracts"), { recursive: true });
   const project = await resolveProject(basePath, environment, suppliedInputs);
+  const generatorConfig = project.generators[plan.generator.id]!;
+  const schedule =
+    plan.generator.implementation === "adf"
+      ? adfSchedule(generatorConfig)
+      : undefined;
   const files: string[] = [];
   for (const id of plan.contracts) {
     const asset = plan.assets.find((item) => item.assetId === id)!;
@@ -860,6 +930,43 @@ export async function buildGeneration(
       };
       await writeJson(join(pipelineDirectory, `${name}.json`), pipeline);
       files.push(`factory/pipelines/${name}.json`);
+      if (schedule) {
+        const triggerDirectory = join(root, "factory", "triggers");
+        const triggerName = `trg_${asset.target.name}`;
+        await mkdir(triggerDirectory, { recursive: true });
+        await writeJson(join(triggerDirectory, `${triggerName}.json`), {
+          name: triggerName,
+          properties: {
+            description: `Generated schedule for ${id}; activation remains an explicit operator action.`,
+            annotations: [
+              "generated-by-ingestron",
+              `plan:${plan.planDigest}`,
+              "activation:manual",
+            ],
+            type: "ScheduleTrigger",
+            typeProperties: {
+              recurrence: {
+                frequency: schedule.frequency,
+                interval: schedule.interval,
+                ...(schedule.timeZone ? { timeZone: schedule.timeZone } : {}),
+                ...(schedule.startTime
+                  ? { startTime: schedule.startTime }
+                  : {}),
+              },
+            },
+            pipelines: [
+              {
+                pipelineReference: {
+                  referenceName: name,
+                  type: "PipelineReference",
+                },
+                parameters: { plan_digest: plan.planDigest },
+              },
+            ],
+          },
+        });
+        files.push(`factory/triggers/${triggerName}.json`);
+      }
       if (!existingSource) {
         await writeJson(join(datasetDirectory, `${datasetName}.json`), dataset);
         files.push(`factory/datasets/${datasetName}.json`);

@@ -207,6 +207,32 @@ test("ADF and Databricks built-ins generate independently verifiable native sour
         ),
         /__BIND_TARGET_LINKED_SERVICE__/,
       );
+      const trigger = JSON.parse(
+        await readFile(
+          join(output, "factory/triggers/trg_fin_test_orders.json"),
+          "utf8",
+        ),
+      ) as {
+        properties: {
+          annotations: string[];
+          pipelines: Array<{
+            pipelineReference: { referenceName: string };
+          }>;
+          typeProperties: {
+            recurrence: { frequency: string; interval: number };
+          };
+        };
+      };
+      assert.ok(trigger.properties.annotations.includes("activation:manual"));
+      assert.equal(
+        trigger.properties.pipelines[0]?.pipelineReference.referenceName,
+        "pl_fin_test_orders",
+      );
+      assert.deepEqual(trigger.properties.typeProperties.recurrence, {
+        frequency: "Day",
+        interval: 1,
+        timeZone: "UTC",
+      });
     } else {
       assert.match(
         await readFile(join(output, "databricks.yml"), "utf8"),
