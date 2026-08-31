@@ -18,3 +18,4 @@ schedule:
   frequency: Day
   interval: 1
   timeZone: UTC
+  startTime: "{{ env.values.scheduleStartTime }}"

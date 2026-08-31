@@ -690,7 +690,7 @@ type AdfSchedule = {
   frequency: "Minute" | "Hour" | "Day" | "Week" | "Month";
   interval: number;
   timeZone?: string;
-  startTime?: string;
+  startTime: string;
 };
 
 function adfSchedule(config: Record<string, unknown>): AdfSchedule | undefined {
@@ -735,19 +735,16 @@ function adfSchedule(config: Record<string, unknown>): AdfSchedule | undefined {
   )
     throw new CliError("GENERATOR_INVALID", "ADF schedule.timeZone is invalid");
   const startTime = schedule.startTime;
-  if (
-    startTime !== undefined &&
-    (typeof startTime !== "string" || !Number.isFinite(Date.parse(startTime)))
-  )
+  if (typeof startTime !== "string" || !Number.isFinite(Date.parse(startTime)))
     throw new CliError(
       "GENERATOR_INVALID",
-      "ADF schedule.startTime must be an ISO timestamp",
+      "ADF schedule.startTime is required and must be an ISO timestamp",
     );
   return {
     frequency: frequency as AdfSchedule["frequency"],
     interval: Number(interval),
     ...(typeof timeZone === "string" ? { timeZone } : {}),
-    ...(typeof startTime === "string" ? { startTime } : {}),
+    startTime,
   };
 }
 
@@ -949,9 +946,7 @@ export async function buildGeneration(
                 frequency: schedule.frequency,
                 interval: schedule.interval,
                 ...(schedule.timeZone ? { timeZone: schedule.timeZone } : {}),
-                ...(schedule.startTime
-                  ? { startTime: schedule.startTime }
-                  : {}),
+                startTime: schedule.startTime,
               },
             },
             pipelines: [

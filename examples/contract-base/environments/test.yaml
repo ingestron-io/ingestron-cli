@@ -6,6 +6,7 @@ metadata:
 values:
   namePrefix: fin_test
   retentionDays: 30
+  scheduleStartTime: "2026-01-01T00:00:00Z"
 targets:
   fabric:
     workspaceId: 33333333-3333-3333-3333-333333333333

@@ -232,6 +232,7 @@ test("ADF and Databricks built-ins generate independently verifiable native sour
         frequency: "Day",
         interval: 1,
         timeZone: "UTC",
+        startTime: "2026-01-01T00:00:00Z",
       });
     } else {
       assert.match(
