@@ -14,3 +14,15 @@ contracts:
   - customers
 target:
   workspaceName: "{{ env.targets.synapse.workspaceName }}"
+output:
+  format: synapse-git
+  files:
+    - path: factory/pipelines/pl_<target>.json
+      purpose: Contract-driven source-to-Bronze orchestration
+    - path: factory/datasets/ds_<contract>_bronze.json
+      purpose: Parquet Bronze handoff dataset
+    - path: factory/factory-parameters.json
+      purpose: Environment-safe deployment parameters
+  workflow:
+    - copy_to_bronze
+    - capture_reconciliation

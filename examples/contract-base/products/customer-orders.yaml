@@ -9,4 +9,6 @@ description: Governed customer-order data for analytics and reporting.
 contracts:
   - contract://orders
   - contract://customers
+standards:
+  - standard://platform
 release: "{{ inputs.releaseName }}"

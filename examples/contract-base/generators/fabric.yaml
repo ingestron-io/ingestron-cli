@@ -13,3 +13,11 @@ contracts:
   - customers
 target:
   workspaceId: "{{ env.targets.fabric.workspaceId }}"
+output:
+  format: fabric-git
+  files:
+    - path: definitions/<target>.create.json
+      purpose: Fabric DataPipeline deployment definition
+  workflow:
+    - ingest
+    - publish
