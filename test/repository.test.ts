@@ -176,6 +176,7 @@ test("Azure Profile J bundles retain Azure-owned provenance and file digests", a
     "1.5.0",
     "1.6.0",
     "1.7.0",
+    "1.8.0",
   ]) {
     const root = `bundles/azure/profile-j/${version}`;
     const manifest = JSON.parse(
@@ -190,7 +191,8 @@ test("Azure Profile J bundles retain Azure-owned provenance and file digests", a
         version.startsWith("1.4.") ||
         version.startsWith("1.5.") ||
         version.startsWith("1.6.") ||
-        version.startsWith("1.7.")
+        version.startsWith("1.7.") ||
+        version.startsWith("1.8.")
         ? "ingestron-io/ingestron-azure"
         : "intentlabs-dev/ingestron-azure",
     );

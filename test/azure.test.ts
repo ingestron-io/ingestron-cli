@@ -9,11 +9,16 @@ import { parse, stringify } from "yaml";
 import type { CommandRunner } from "../src/adf.js";
 import {
   azureAdfConfig,
+  azureCreate,
+  azureDrop,
   azureInit,
   azureInstall,
+  azurePause,
   azurePlan,
+  azurePlanLifecycle,
   azurePlanUninstall,
   azureRollback,
+  azureResume,
   azureStatus,
   azureUninstall,
   azureUpgrade,
@@ -124,11 +129,13 @@ function fakeAzure(
     failCreateOnce?: boolean;
     foundationNoise?: boolean;
     workerDigest?: string;
+    functionState?: "Running" | "Stopped";
   } = {},
 ) {
   let exists = options.existing ?? false;
   let failCreateOnce = options.failCreateOnce ?? false;
   const workerDigest = options.workerDigest ?? imageDigest;
+  let functionState = options.functionState ?? "Running";
   const calls: string[][] = [];
   const runner: CommandRunner = async (args) => {
     calls.push(args);
@@ -282,7 +289,17 @@ function fakeAzure(
           },
         },
       };
-    if (args[0] === "functionapp")
+    if (args[0] === "functionapp" && args[1] === "show")
+      return { state: functionState };
+    if (args[0] === "functionapp" && args[1] === "stop") {
+      functionState = "Stopped";
+      return {};
+    }
+    if (args[0] === "functionapp" && args[1] === "start") {
+      functionState = "Running";
+      return {};
+    }
+    if (args[0] === "functionapp" && args[1] === "function")
       return [{ name: "func-ing-j-testj01/submitIngestronJob" }];
     return {};
   };
@@ -378,7 +395,7 @@ test("azure init downloads the pinned Function package and defaults the worker d
     config.artifacts.jobsFunctionsPackage,
     "artifacts/ingestron-jobs-0.6.0-preview.1-fecda3d6f749.zip",
   );
-  assert.equal(config.bundle.version, "1.7.0");
+  assert.equal(config.bundle.version, "1.8.0");
 });
 
 test("plan defers runtime what-if until the Bicep foundation exists", async () => {
@@ -569,5 +586,89 @@ test("uninstall refuses drift and deletes only the exact owned group", async () 
     azure.calls.filter((call) => call[0] === "group" && call[1] === "delete")
       .length,
     1,
+  );
+});
+
+test("plans, pauses and resumes only bundle-declared locked compute", async () => {
+  const path = await configuration("1.8.0");
+  const azure = fakeAzure({ workerDigest: referenceGateImageDigest });
+  await azureCreate(path, true, azure.runner, localRunner, artifactVerifier);
+  const plan = await azurePlanLifecycle(
+    path,
+    "pause",
+    "cost-bearing",
+    azure.runner,
+  );
+  assert.equal(plan.operations.length, 1);
+  assert.equal(plan.operations[0]?.resourceName, "func-ing-j-testj01");
+  assert.equal(plan.operations[0]?.changeRequired, true);
+  assert.equal(plan.zeroCostGuaranteed, false);
+  assert.ok(plan.residualCostClasses.includes("storage-retention"));
+  await assert.rejects(
+    () => azurePause(path, "cost-bearing", false, azure.runner),
+    (error: unknown) =>
+      error instanceof CliError && error.code === "CONFIRMATION_REQUIRED",
+  );
+  const paused = await azurePause(path, "cost-bearing", true, azure.runner);
+  assert.deepEqual(paused.pausedResources, [resourceIds[2]]);
+  assert.equal(
+    (await azureStatus(path, azure.runner)).lifecycle.status,
+    "paused",
+  );
+  assert.equal(
+    azure.calls.filter(
+      (call) => call[0] === "functionapp" && call[1] === "stop",
+    ).length,
+    1,
+  );
+  const resumed = await azureResume(path, "cost-bearing", true, azure.runner);
+  assert.deepEqual(resumed.pausedResources, []);
+  assert.equal(
+    (await azureStatus(path, azure.runner)).lifecycle.status,
+    "running",
+  );
+  assert.equal(
+    azure.calls.filter(
+      (call) => call[0] === "functionapp" && call[1] === "start",
+    ).length,
+    1,
+  );
+  const dropped = await azureDrop(path, true, azure.runner);
+  assert.equal(dropped.action, "drop");
+});
+
+test("resume never adopts a Function App that the CLI did not pause", async () => {
+  const path = await configuration("1.8.0");
+  const azure = fakeAzure({
+    workerDigest: referenceGateImageDigest,
+    functionState: "Stopped",
+  });
+  await azureInstall(path, true, azure.runner, localRunner, artifactVerifier);
+  const paused = await azurePause(path, "all", true, azure.runner);
+  assert.deepEqual(paused.pausedResources, []);
+  const resumePlan = await azurePlanLifecycle(
+    path,
+    "resume",
+    "all",
+    azure.runner,
+  );
+  assert.deepEqual(resumePlan.operations, []);
+  await azureResume(path, "all", true, azure.runner);
+  assert.equal(
+    azure.calls.some(
+      (call) => call[0] === "functionapp" && call[1] === "start",
+    ),
+    false,
+  );
+});
+
+test("older bundles fail closed when pause semantics are absent", async () => {
+  const path = await configuration("1.7.0");
+  const azure = fakeAzure({ workerDigest: referenceGateImageDigest });
+  await azureInstall(path, true, azure.runner, localRunner, artifactVerifier);
+  await assert.rejects(
+    () => azurePlanLifecycle(path, "pause", "cost-bearing", azure.runner),
+    (error: unknown) =>
+      error instanceof CliError && error.code === "LIFECYCLE_UNSUPPORTED",
   );
 });

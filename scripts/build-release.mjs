@@ -53,6 +53,7 @@ const azureBundles = await Promise.all(
     "1.5.0",
     "1.6.0",
     "1.7.0",
+    "1.8.0",
   ].map(async (version) => {
     const path = resolve(
       root,
