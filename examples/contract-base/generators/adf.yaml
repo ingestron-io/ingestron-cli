@@ -5,6 +5,8 @@ metadata:
   name: Azure Data Factory Git source
 implementation: adf
 version: 1.1.0
+standards:
+  - platform
 products:
   - customer-orders
 contracts:

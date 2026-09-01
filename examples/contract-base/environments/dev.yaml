@@ -24,6 +24,7 @@ targets:
   databricks:
     workspaceHost: https://adb-1000000000000000.0.azuredatabricks.net
     rootPath: /Workspace/Shared/ingestron/dev
+    bronzeRootPath: abfss://bronze@stingingestrondev.dfs.core.windows.net
     replacements:
       __BIND_JOB_CLUSTER__: ingestron_job_cluster
       __BIND_SPARK_VERSION__: 15.4.x-scala2.12

@@ -5,6 +5,8 @@ metadata:
   name: Databricks Asset Bundle source
 implementation: databricks
 version: 1.0.0
+standards:
+  - platform
 products:
   - customer-orders
 contracts:
@@ -13,3 +15,5 @@ contracts:
 target:
   workspaceHost: "{{ env.targets.databricks.workspaceHost }}"
   rootPath: "{{ env.targets.databricks.rootPath }}"
+handoff:
+  bronzeRootPath: "{{ env.targets.databricks.bronzeRootPath }}"

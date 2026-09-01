@@ -84,6 +84,11 @@ export type GenerationPlan = {
     version: string;
     digest: string;
   };
+  standards: Array<{
+    id: string;
+    version: string;
+    digest: string;
+  }>;
   products: string[];
   contracts: string[];
   assets: Array<{
@@ -605,6 +610,51 @@ function assetName(contract: Record<string, unknown>, id: string): string {
   return value;
 }
 
+function generationStandards(
+  config: Record<string, unknown>,
+  project: ProjectResolution,
+  generatorId: string,
+  implementation: string,
+  version: string,
+): GenerationPlan["standards"] {
+  const ids = stringArray(config.standards, Object.keys(project.standards));
+  return ids.map((id) => {
+    const standard = project.standards[id];
+    if (!standard)
+      throw new CliError(
+        "GENERATOR_STANDARD",
+        `Generator ${generatorId} selects unknown standards pack ${id}`,
+      );
+    const metadata = isRecord(standard.metadata) ? standard.metadata : {};
+    const standardVersion =
+      typeof metadata.version === "string" ? metadata.version : "1.0.0";
+    const compatibility = isRecord(standard.compatibility)
+      ? standard.compatibility
+      : {};
+    const generators = isRecord(compatibility.generators)
+      ? compatibility.generators
+      : {};
+    const compatibilityEntry = isRecord(generators[generatorId])
+      ? generators[generatorId]
+      : isRecord(generators[implementation])
+        ? generators[implementation]
+        : undefined;
+    if (compatibilityEntry) {
+      const versions = stringArray(compatibilityEntry.versions, []);
+      if (versions.length > 0 && !versions.includes(version))
+        throw new CliError(
+          "GENERATOR_STANDARD",
+          `Standards pack ${id} ${standardVersion} does not support ${generatorId} ${version}`,
+        );
+    }
+    return {
+      id,
+      version: standardVersion,
+      digest: digest(canonical(standard)),
+    };
+  });
+}
+
 export async function planGeneration(
   basePath: string,
   environment: string,
@@ -625,6 +675,13 @@ export async function planGeneration(
       `Unsupported built-in generator ${String(implementation)}`,
     );
   const version = typeof config.version === "string" ? config.version : "1.0.0";
+  const standards = generationStandards(
+    config,
+    project,
+    generatorId,
+    implementation,
+    version,
+  );
   const products = stringArray(config.products, Object.keys(project.products));
   const contracts = stringArray(
     config.contracts,
@@ -668,6 +725,7 @@ export async function planGeneration(
     resolutionDigest: project.digest,
     environment,
     generator,
+    standards,
     products,
     contracts,
     assets,
@@ -777,6 +835,23 @@ export async function buildGeneration(
   await mkdir(join(root, "contracts"), { recursive: true });
   const project = await resolveProject(basePath, environment, suppliedInputs);
   const generatorConfig = project.generators[plan.generator.id]!;
+  const selectedStandards = plan.standards.map(
+    (item) => project.standards[item.id]!,
+  );
+  const primaryStandard = selectedStandards[0] ?? {};
+  const architecture = isRecord(primaryStandard.architecture)
+    ? primaryStandard.architecture
+    : {};
+  const handoff = isRecord(architecture.handoff) ? architecture.handoff : {};
+  const handoffContract =
+    typeof handoff.contract === "string"
+      ? handoff.contract
+      : "ingestron.medallion-handoff/v1";
+  const handoffFormat =
+    typeof handoff.format === "string" ? handoff.format : "parquet";
+  const standardAnnotations = plan.standards.map(
+    (item) => `standard:${item.id}@${item.version}`,
+  );
   const schedule =
     plan.generator.implementation === "adf"
       ? adfSchedule(generatorConfig)
@@ -825,6 +900,10 @@ export async function buildGeneration(
             watermark_from: { type: "String" },
             watermark_to: { type: "String" },
             plan_digest: { type: "String", defaultValue: plan.planDigest },
+            handoff_contract: {
+              type: "String",
+              defaultValue: handoffContract,
+            },
           },
           activities: [
             {
@@ -844,7 +923,9 @@ export async function buildGeneration(
                   : { type: "__BIND_SOURCE_TYPE__" },
                 sink: isRecord(targetAdf.sink)
                   ? targetAdf.sink
-                  : { type: "__BIND_SINK_TYPE__" },
+                  : handoffFormat === "parquet"
+                    ? { type: "ParquetSink" }
+                    : { type: "__BIND_SINK_TYPE__" },
               },
               validateDataConsistency: true,
               inputs: [
@@ -890,7 +971,12 @@ export async function buildGeneration(
               },
             },
           ],
-          annotations: ["generated-by-ingestron", `plan:${plan.planDigest}`],
+          annotations: [
+            "generated-by-ingestron",
+            `plan:${plan.planDigest}`,
+            `handoff:${handoffContract}`,
+            ...standardAnnotations,
+          ],
         },
       };
       const dataset = {
@@ -900,7 +986,7 @@ export async function buildGeneration(
             referenceName: "__BIND_SOURCE_LINKED_SERVICE__",
             type: "LinkedServiceReference",
           },
-          annotations: ["generated-by-ingestron"],
+          annotations: ["generated-by-ingestron", ...standardAnnotations],
           type: "__BIND_DATASET_TYPE__",
           typeProperties: {
             schema: String(asset.source.schema ?? "dbo"),
@@ -915,14 +1001,31 @@ export async function buildGeneration(
             referenceName: "__BIND_TARGET_LINKED_SERVICE__",
             type: "LinkedServiceReference",
           },
-          annotations: ["generated-by-ingestron"],
-          type: "__BIND_TARGET_DATASET_TYPE__",
-          typeProperties: {
-            schema: String(asset.target.name).includes(".")
-              ? String(asset.target.name).split(".")[0]
-              : "dbo",
-            table: String(asset.target.name).split(".").at(-1),
-          },
+          annotations: [
+            "generated-by-ingestron",
+            `handoff:${handoffContract}`,
+            ...standardAnnotations,
+          ],
+          type:
+            handoffFormat === "parquet"
+              ? "Parquet"
+              : "__BIND_TARGET_DATASET_TYPE__",
+          typeProperties:
+            handoffFormat === "parquet"
+              ? {
+                  location: {
+                    type: "AzureBlobFSLocation",
+                    fileSystem: "bronze",
+                    folderPath: String(asset.target.name),
+                  },
+                  compressionCodec: "snappy",
+                }
+              : {
+                  schema: String(asset.target.name).includes(".")
+                    ? String(asset.target.name).split(".")[0]
+                    : "dbo",
+                  table: String(asset.target.name).split(".").at(-1),
+                },
         },
       };
       await writeJson(join(pipelineDirectory, `${name}.json`), pipeline);
@@ -939,6 +1042,7 @@ export async function buildGeneration(
               "generated-by-ingestron",
               `plan:${plan.planDigest}`,
               "activation:manual",
+              ...standardAnnotations,
             ],
             type: "ScheduleTrigger",
             typeProperties: {
@@ -955,7 +1059,10 @@ export async function buildGeneration(
                   referenceName: name,
                   type: "PipelineReference",
                 },
-                parameters: { plan_digest: plan.planDigest },
+                parameters: {
+                  plan_digest: plan.planDigest,
+                  handoff_contract: handoffContract,
+                },
               },
             ],
           },
@@ -985,6 +1092,33 @@ export async function buildGeneration(
       const sourceDirectory = join(root, "src");
       await mkdir(resourceDirectory, { recursive: true });
       await mkdir(sourceDirectory, { recursive: true });
+      const generatorHandoff = isRecord(generatorConfig.handoff)
+        ? generatorConfig.handoff
+        : {};
+      const bronzeRootPath =
+        typeof generatorHandoff.bronzeRootPath === "string"
+          ? generatorHandoff.bronzeRootPath.replace(/\/$/, "")
+          : "__BIND_BRONZE_ROOT_PATH__";
+      const bronzePath = `${bronzeRootPath}/${asset.target.name}`;
+      const silverTable = `${asset.target.name}_silver`;
+      const goldTable = `${asset.target.name}_gold`;
+      const contractSchema = isRecord(project.contracts[id]!.schema)
+        ? project.contracts[id]!.schema
+        : {};
+      const fields = Array.isArray(contractSchema.fields)
+        ? contractSchema.fields
+        : [];
+      const expectedColumns = fields.flatMap((field) =>
+        isRecord(field) && typeof field.name === "string" ? [field.name] : [],
+      );
+      const taskParameters = {
+        asset_id: id,
+        plan_digest: plan.planDigest,
+        handoff_contract: handoffContract,
+        bronze_path: bronzePath,
+        silver_table: silverTable,
+        gold_table: goldTable,
+      };
       const resource = {
         resources: {
           jobs: {
@@ -993,17 +1127,18 @@ export async function buildGeneration(
               tags: {
                 generated_by: "ingestron",
                 plan_digest: plan.planDigest,
+                standards: plan.standards
+                  .map((item) => `${item.id}@${item.version}`)
+                  .join(","),
               },
               tasks: [
                 {
-                  task_key: "land_bronze",
+                  task_key: "validate_bronze",
                   notebook_task: {
                     notebook_path: `../src/${id}.py`,
                     base_parameters: {
-                      asset_id: id,
-                      plan_digest: plan.planDigest,
-                      source_table: String(asset.source.dataset ?? id),
-                      target_table: String(asset.target.name),
+                      ...taskParameters,
+                      stage: "validate_bronze",
                     },
                   },
                   job_cluster_key: "__BIND_JOB_CLUSTER__",
@@ -1011,11 +1146,39 @@ export async function buildGeneration(
                   min_retry_interval_millis: 60_000,
                 },
                 {
+                  task_key: "build_silver",
+                  depends_on: [{ task_key: "validate_bronze" }],
+                  notebook_task: {
+                    notebook_path: `../src/${id}.py`,
+                    base_parameters: {
+                      ...taskParameters,
+                      stage: "build_silver",
+                    },
+                  },
+                  job_cluster_key: "__BIND_JOB_CLUSTER__",
+                },
+                {
+                  task_key: "publish_gold",
+                  depends_on: [{ task_key: "build_silver" }],
+                  notebook_task: {
+                    notebook_path: `../src/${id}.py`,
+                    base_parameters: {
+                      ...taskParameters,
+                      stage: "publish_gold",
+                    },
+                  },
+                  job_cluster_key: "__BIND_JOB_CLUSTER__",
+                },
+                {
                   task_key: "reconcile",
-                  depends_on: [{ task_key: "land_bronze" }],
+                  depends_on: [{ task_key: "publish_gold" }],
                   notebook_task: {
                     notebook_path: "../src/reconcile.py",
-                    base_parameters: { asset_id: id },
+                    base_parameters: {
+                      asset_id: id,
+                      bronze_path: bronzePath,
+                      gold_table: goldTable,
+                    },
                   },
                   job_cluster_key: "__BIND_JOB_CLUSTER__",
                 },
@@ -1040,7 +1203,7 @@ export async function buildGeneration(
       );
       await writeFile(
         join(sourceDirectory, `${id}.py`),
-        `# Generated by Ingestron. Review through the generated plan before deployment.\nimport json\nfrom datetime import datetime, timezone\n\nfor name in ("asset_id", "plan_digest", "source_table", "target_table"):\n    dbutils.widgets.text(name, "")\n\nasset_id = dbutils.widgets.get("asset_id")\nplan_digest = dbutils.widgets.get("plan_digest")\nsource_table = dbutils.widgets.get("source_table")\ntarget_table = dbutils.widgets.get("target_table")\nif not all((asset_id, plan_digest, source_table, target_table)):\n    raise ValueError("asset_id, plan_digest, source_table and target_table are required")\n\nsource = spark.table(source_table)\nsource_count = source.count()\n(source.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable(target_table))\ntarget_count = spark.table(target_table).count()\nif source_count != target_count:\n    raise RuntimeError(f"Reconciliation failed: source={source_count}, target={target_count}")\nprint(json.dumps({"event": "ingestron.asset.completed", "assetId": asset_id, "planDigest": plan_digest, "sourceCount": source_count, "targetCount": target_count, "at": datetime.now(timezone.utc).isoformat()}))\n`,
+        `# Generated by Ingestron from ${plan.standards.map((item) => `${item.id}@${item.version}`).join(", ")}.\n# Review the generation plan before customer-side deployment.\nimport json\nfrom datetime import datetime, timezone\n\nfor name in ("stage", "asset_id", "plan_digest", "handoff_contract", "bronze_path", "silver_table", "gold_table"):\n    dbutils.widgets.text(name, "")\n\nstage = dbutils.widgets.get("stage")\nasset_id = dbutils.widgets.get("asset_id")\nplan_digest = dbutils.widgets.get("plan_digest")\nhandoff_contract = dbutils.widgets.get("handoff_contract")\nbronze_path = dbutils.widgets.get("bronze_path")\nsilver_table = dbutils.widgets.get("silver_table")\ngold_table = dbutils.widgets.get("gold_table")\nif not all((stage, asset_id, plan_digest, handoff_contract, bronze_path, silver_table, gold_table)):\n    raise ValueError("All governed task parameters are required")\nif handoff_contract != ${JSON.stringify(handoffContract)}:\n    raise ValueError("The ingestion handoff contract does not match the selected standards pack")\n\nexpected_columns = ${JSON.stringify(expectedColumns)}\nbronze = spark.read.format(${JSON.stringify(handoffFormat)}).load(bronze_path)\nmissing = sorted(set(expected_columns) - set(bronze.columns))\nif missing:\n    raise ValueError(f"Bronze contract validation failed; missing columns: {missing}")\n\nif stage == "validate_bronze":\n    output_count = bronze.count()\nelif stage == "build_silver":\n    silver = bronze.select(*expected_columns)\n    silver.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable(silver_table)\n    output_count = spark.table(silver_table).count()\nelif stage == "publish_gold":\n    silver = spark.table(silver_table)\n    silver.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable(gold_table)\n    output_count = spark.table(gold_table).count()\nelse:\n    raise ValueError(f"Unsupported governed stage: {stage}")\n\nprint(json.dumps({"event": "ingestron.asset.stage.completed", "stage": stage, "assetId": asset_id, "planDigest": plan_digest, "rowCount": output_count, "at": datetime.now(timezone.utc).isoformat()}))\n`,
       );
       files.push(`resources/${id}.job.yml`, `src/${id}.py`);
       await writeFile(
@@ -1206,6 +1369,12 @@ export async function buildGeneration(
       factoryName: "__BIND_FACTORY_NAME__",
       sourceLinkedService: "__BIND_SOURCE_LINKED_SERVICE__",
       targetLinkedService: "__BIND_TARGET_LINKED_SERVICE__",
+      targetDatasetType:
+        handoffFormat === "parquet"
+          ? "Parquet"
+          : "__BIND_TARGET_DATASET_TYPE__",
+      handoffContract,
+      standards: plan.standards,
       planDigest: plan.planDigest,
     });
     files.push("factory/factory-parameters.json");
@@ -1213,7 +1382,7 @@ export async function buildGeneration(
   if (plan.generator.implementation === "databricks") {
     await writeFile(
       join(root, "src", "reconcile.py"),
-      `# Generated by Ingestron. The landing task performs the authoritative count check.\nimport json\nfrom datetime import datetime, timezone\n\ndbutils.widgets.text("asset_id", "")\nasset_id = dbutils.widgets.get("asset_id")\nif not asset_id:\n    raise ValueError("asset_id is required")\nprint(json.dumps({"event": "ingestron.asset.reconciled", "assetId": asset_id, "at": datetime.now(timezone.utc).isoformat()}))\n`,
+      `# Generated by Ingestron. Reconciles the governed ingestion-to-product handoff.\nimport json\nfrom datetime import datetime, timezone\n\nfor name in ("asset_id", "bronze_path", "gold_table"):\n    dbutils.widgets.text(name, "")\nasset_id = dbutils.widgets.get("asset_id")\nbronze_path = dbutils.widgets.get("bronze_path")\ngold_table = dbutils.widgets.get("gold_table")\nif not all((asset_id, bronze_path, gold_table)):\n    raise ValueError("asset_id, bronze_path and gold_table are required")\nbronze_count = spark.read.format(${JSON.stringify(handoffFormat)}).load(bronze_path).count()\ngold_count = spark.table(gold_table).count()\nif bronze_count != gold_count:\n    raise RuntimeError(f"Reconciliation failed: bronze={bronze_count}, gold={gold_count}")\nprint(json.dumps({"event": "ingestron.asset.reconciled", "assetId": asset_id, "bronzeCount": bronze_count, "goldCount": gold_count, "at": datetime.now(timezone.utc).isoformat()}))\n`,
     );
     files.push("src/reconcile.py");
     await writeFile(
@@ -1255,6 +1424,7 @@ export async function buildGeneration(
     resolutionDigest: project.digest,
     planDigest: plan.planDigest,
     generator: plan.generator,
+    standards: plan.standards,
     files: sortedFiles,
     fileDigests,
     deployed: false,
@@ -1263,7 +1433,7 @@ export async function buildGeneration(
   await writeJson(join(root, "generation-plan.json"), plan);
   await writeFile(
     join(root, "README.md"),
-    `# ${project.project.name} — generated ${plan.generator.implementation} source\n\nGenerated deterministically by Ingestron CLI. This source has not been deployed or validated against a customer target.\n\n- Environment: ${environment}\n- Plan: ${plan.planDigest}\n- Contracts: ${plan.contracts.length}\n\nUse \`ingestron deploy plan\` to create the customer-side deployment handoff.\n`,
+    `# ${project.project.name} — generated ${plan.generator.implementation} source\n\nGenerated deterministically by Ingestron CLI. This source has not been deployed or validated against a customer target.\n\n- Environment: ${environment}\n- Plan: ${plan.planDigest}\n- Contracts: ${plan.contracts.length}\n- Standards: ${plan.standards.map((item) => `${item.id}@${item.version}`).join(", ")}\n\nUse \`ingestron deploy plan\` to create the customer-side deployment handoff.\n`,
   );
   return { ...manifest, outputPath: root };
 }

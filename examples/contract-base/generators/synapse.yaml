@@ -5,6 +5,8 @@ metadata:
   name: Synapse pipeline Git source
 implementation: adf
 version: 1.0.0
+standards:
+  - platform
 products:
   - customer-orders
 contracts:

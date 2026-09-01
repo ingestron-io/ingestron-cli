@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -177,6 +177,11 @@ test("ADF and Databricks built-ins generate independently verifiable native sour
   for (const generator of ["adf", "databricks"] as const) {
     const plan = await planGeneration(base, "test", generator);
     assert.equal(plan.generator.implementation, generator);
+    assert.deepEqual(
+      plan.standards.map(({ id, version }) => ({ id, version })),
+      [{ id: "platform", version: "1.0.0" }],
+    );
+    assert.match(plan.standards[0]!.digest, /^sha256:[a-f0-9]{64}$/);
     assert.equal(plan.assets.length, 2);
     const output = await mkdtemp(
       join(tmpdir(), `ingestron-${generator}-build-`),
@@ -205,7 +210,14 @@ test("ADF and Databricks built-ins generate independently verifiable native sour
           join(output, "factory/datasets/ds_fin_test_orders_bronze.json"),
           "utf8",
         ),
-        /__BIND_TARGET_LINKED_SERVICE__/,
+        /ingestron.medallion-handoff\/v1/,
+      );
+      assert.match(
+        await readFile(
+          join(output, "factory/datasets/ds_fin_test_orders_bronze.json"),
+          "utf8",
+        ),
+        /Parquet/,
       );
       const trigger = JSON.parse(
         await readFile(
@@ -241,14 +253,46 @@ test("ADF and Databricks built-ins generate independently verifiable native sour
       );
       assert.match(
         await readFile(join(output, "src/orders.py"), "utf8"),
-        /saveAsTable/,
+        /validate_bronze/,
+      );
+      assert.match(
+        await readFile(join(output, "src/orders.py"), "utf8"),
+        /publish_gold/,
+      );
+      assert.match(
+        await readFile(join(output, "resources/orders.job.yml"), "utf8"),
+        /build_silver/,
       );
       assert.match(
         await readFile(join(output, "src/reconcile.py"), "utf8"),
         /asset.reconciled/,
       );
     }
+    const lock = YAML.parse(
+      await readFile(join(output, "ingestron.lock.yaml"), "utf8"),
+    ) as { standards: Array<{ id: string; version: string }> };
+    assert.deepEqual(
+      lock.standards.map(({ id, version }) => ({ id, version })),
+      [{ id: "platform", version: "1.0.0" }],
+    );
   }
+});
+
+test("generation fails when a selected standards pack excludes the generator version", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "ingestron-standard-version-"));
+  const root = join(parent, "contract-base");
+  await cp(base, root, { recursive: true });
+  const generatorPath = join(root, "generators/adf.yaml");
+  const generator = YAML.parse(await readFile(generatorPath, "utf8")) as Record<
+    string,
+    unknown
+  >;
+  generator.version = "9.9.9";
+  await writeFile(generatorPath, YAML.stringify(generator));
+  await assert.rejects(
+    () => planGeneration(root, "dev", "adf"),
+    /does not support adf 9\.9\.9/,
+  );
 });
 
 test("generated source verification rejects a changed declared asset", async () => {
