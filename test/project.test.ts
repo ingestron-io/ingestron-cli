@@ -1,0 +1,335 @@
+import assert from "node:assert/strict";
+import { cp, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+import YAML from "yaml";
+import {
+  buildGeneration,
+  deploymentPlan,
+  planGeneration,
+  resolveProject,
+  verifyGeneration,
+} from "../src/project.js";
+import { evaluateExpression, renderTemplateValue } from "../src/template.js";
+
+const base = "examples/contract-base";
+
+test("template expressions preserve types, use missing-only defaults and declared values", () => {
+  const context = {
+    env: { values: { count: 0, enabled: false, empty: "" } },
+    inputs: { releaseName: "candidate" },
+  };
+  assert.equal(renderTemplateValue("{{ env.values.count }}", context), 0);
+  assert.equal(renderTemplateValue("{{ env.values.enabled }}", context), false);
+  assert.equal(
+    renderTemplateValue(
+      "{{ env.values.empty | default('fallback') }}",
+      context,
+    ),
+    "",
+  );
+  assert.equal(
+    renderTemplateValue("release-{{ inputs.releaseName }}", context),
+    "release-candidate",
+  );
+  assert.equal(
+    evaluateExpression(
+      "env.values.count == 0 and not env.values.enabled",
+      context,
+    ),
+    true,
+  );
+  assert.throws(
+    () => renderTemplateValue("{{ env.values.unknown }}", context),
+    /Missing value/,
+  );
+});
+
+test("contract base resolves references, environments and typed declared inputs", async () => {
+  const project = await resolveProject(base, "dev", {
+    releaseName: "candidate-1",
+    includeMaintenance: "false",
+  });
+  assert.equal(project.contract, "ingestron.contract-base-resolution/v1");
+  assert.equal(project.project.id, "finance-platform");
+  assert.deepEqual(Object.keys(project.products), ["customer-orders"]);
+  assert.deepEqual(Object.keys(project.contracts), ["customers", "orders"]);
+  assert.equal(project.products["customer-orders"]!.release, "candidate-1");
+  assert.equal(
+    (project.contracts.orders!.target as Record<string, unknown>).name,
+    "fin_dev_orders",
+  );
+  assert.equal(
+    (project.contracts.orders!.controls as Record<string, unknown>)
+      .retentionDays,
+    14,
+  );
+  assert.equal(
+    (project.contracts.orders!.controls as Record<string, unknown>).maintenance,
+    false,
+  );
+  assert.match(project.digest, /^sha256:[a-f0-9]{64}$/);
+  await assert.rejects(
+    () => resolveProject(base, "dev", { undeclared: "value" }),
+    /Undeclared/,
+  );
+});
+
+test("contract bases support hundreds of separately reviewable contracts", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ingestron-large-base-"));
+  for (const directory of [
+    "products",
+    "contracts",
+    "standards",
+    "generators",
+    "environments",
+  ])
+    await mkdir(join(root, directory));
+  await writeFile(
+    join(root, "ingestron.yaml"),
+    YAML.stringify({
+      apiVersion: "ingestron.io/v1alpha1",
+      kind: "ContractBase",
+      metadata: { id: "large-estate", name: "Large estate" },
+    }),
+  );
+  await writeFile(
+    join(root, "environments/dev.yaml"),
+    YAML.stringify({
+      apiVersion: "ingestron.io/v1alpha1",
+      kind: "Environment",
+      metadata: { id: "dev", name: "Development" },
+      values: { namePrefix: "large_dev" },
+    }),
+  );
+  const contractIds = Array.from(
+    { length: 500 },
+    (_, index) => `source-${String(index + 1).padStart(4, "0")}`,
+  );
+  await Promise.all(
+    contractIds.map((id) =>
+      writeFile(
+        join(root, "contracts", `${id}.yaml`),
+        YAML.stringify({
+          apiVersion: "datacontract.com/v1",
+          kind: "DataContract",
+          metadata: { id, name: id, version: "1.0.0" },
+          schema: { fields: [{ name: "id", type: "string", required: true }] },
+        }),
+      ),
+    ),
+  );
+  await writeFile(
+    join(root, "products/large-estate.yaml"),
+    YAML.stringify({
+      apiVersion: "opendataproducts.org/v4.1.0",
+      kind: "DataProduct",
+      metadata: { id: "large-estate", name: "Large estate" },
+      contracts: contractIds.map((id) => `contract://${id}`),
+    }),
+  );
+  const resolution = await resolveProject(root, "dev");
+  assert.equal(Object.keys(resolution.contracts).length, 500);
+  assert.ok(resolution.sourceFiles.length > 500);
+});
+
+test("Fabric plan and build are deterministic and independently verifiable", async () => {
+  const plan = await planGeneration(base, "dev", "fabric");
+  assert.equal(plan.generator.implementation, "fabric");
+  assert.equal(plan.assets.length, 2);
+  assert.match(plan.planDigest, /^sha256:[a-f0-9]{64}$/);
+
+  const first = await mkdtemp(join(tmpdir(), "ingestron-build-a-"));
+  const second = await mkdtemp(join(tmpdir(), "ingestron-build-b-"));
+  await buildGeneration(base, "dev", "fabric", first);
+  await buildGeneration(base, "dev", "fabric", second);
+  assert.equal(
+    await readFile(
+      join(first, "definitions/pl_fin_dev_orders.create.json"),
+      "utf8",
+    ),
+    await readFile(
+      join(second, "definitions/pl_fin_dev_orders.create.json"),
+      "utf8",
+    ),
+  );
+  const lock = YAML.parse(
+    await readFile(join(first, "ingestron.lock.yaml"), "utf8"),
+  );
+  assert.equal(lock.deployed, false);
+  assert.equal(lock.generator.version, "1.0.0");
+  assert.match(
+    await readFile(
+      join(
+        first,
+        "items/nb_fin_dev_orders_land_bronze.Notebook/notebook-content.py",
+      ),
+      "utf8",
+    ),
+    /saveAsTable/,
+  );
+  const verification = await verifyGeneration(first);
+  assert.equal(verification.valid, true);
+});
+
+test("ADF and Databricks built-ins generate independently verifiable native source", async () => {
+  for (const generator of ["adf", "databricks"] as const) {
+    const plan = await planGeneration(base, "test", generator);
+    assert.equal(plan.generator.implementation, generator);
+    assert.deepEqual(
+      plan.standards.map(({ id, version }) => ({ id, version })),
+      [{ id: "platform", version: "1.0.0" }],
+    );
+    assert.match(plan.standards[0]!.digest, /^sha256:[a-f0-9]{64}$/);
+    assert.equal(plan.assets.length, 2);
+    const output = await mkdtemp(
+      join(tmpdir(), `ingestron-${generator}-build-`),
+    );
+    const built = await buildGeneration(base, "test", generator, output);
+    assert.equal(built.target, generator);
+    const verification = await verifyGeneration(output);
+    assert.equal(verification.valid, true);
+    if (generator === "adf") {
+      assert.match(
+        await readFile(
+          join(output, "factory/pipelines/pl_fin_test_orders.json"),
+          "utf8",
+        ),
+        /copy_to_bronze/,
+      );
+      assert.match(
+        await readFile(
+          join(output, "factory/pipelines/pl_fin_test_orders.json"),
+          "utf8",
+        ),
+        /validateDataConsistency/,
+      );
+      assert.match(
+        await readFile(
+          join(output, "factory/datasets/ds_fin_test_orders_bronze.json"),
+          "utf8",
+        ),
+        /ingestron.medallion-handoff\/v1/,
+      );
+      assert.match(
+        await readFile(
+          join(output, "factory/datasets/ds_fin_test_orders_bronze.json"),
+          "utf8",
+        ),
+        /Parquet/,
+      );
+      const trigger = JSON.parse(
+        await readFile(
+          join(output, "factory/triggers/trg_fin_test_orders.json"),
+          "utf8",
+        ),
+      ) as {
+        properties: {
+          annotations: string[];
+          pipelines: Array<{
+            pipelineReference: { referenceName: string };
+          }>;
+          typeProperties: {
+            recurrence: { frequency: string; interval: number };
+          };
+        };
+      };
+      assert.ok(trigger.properties.annotations.includes("activation:manual"));
+      assert.equal(
+        trigger.properties.pipelines[0]?.pipelineReference.referenceName,
+        "pl_fin_test_orders",
+      );
+      assert.deepEqual(trigger.properties.typeProperties.recurrence, {
+        frequency: "Day",
+        interval: 1,
+        timeZone: "UTC",
+        startTime: "2026-01-01T00:00:00Z",
+      });
+    } else {
+      assert.match(
+        await readFile(join(output, "databricks.yml"), "utf8"),
+        /production|development/,
+      );
+      assert.match(
+        await readFile(join(output, "src/orders.py"), "utf8"),
+        /validate_bronze/,
+      );
+      assert.match(
+        await readFile(join(output, "src/orders.py"), "utf8"),
+        /publish_gold/,
+      );
+      assert.match(
+        await readFile(join(output, "resources/orders.job.yml"), "utf8"),
+        /build_silver/,
+      );
+      assert.match(
+        await readFile(join(output, "src/reconcile.py"), "utf8"),
+        /asset.reconciled/,
+      );
+    }
+    const lock = YAML.parse(
+      await readFile(join(output, "ingestron.lock.yaml"), "utf8"),
+    ) as { standards: Array<{ id: string; version: string }> };
+    assert.deepEqual(
+      lock.standards.map(({ id, version }) => ({ id, version })),
+      [{ id: "platform", version: "1.0.0" }],
+    );
+  }
+});
+
+test("generation fails when a selected standards pack excludes the generator version", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "ingestron-standard-version-"));
+  const root = join(parent, "contract-base");
+  await cp(base, root, { recursive: true });
+  const generatorPath = join(root, "generators/adf.yaml");
+  const generator = YAML.parse(await readFile(generatorPath, "utf8")) as Record<
+    string,
+    unknown
+  >;
+  generator.version = "9.9.9";
+  await writeFile(generatorPath, YAML.stringify(generator));
+  await assert.rejects(
+    () => planGeneration(root, "dev", "adf"),
+    /does not support adf 9\.9\.9/,
+  );
+});
+
+test("generated source verification rejects a changed declared asset", async () => {
+  const output = await mkdtemp(join(tmpdir(), "ingestron-tampered-build-"));
+  await buildGeneration(base, "dev", "fabric", output);
+  await writeFile(
+    join(output, "items/pl_fin_dev_orders.DataPipeline/pipeline-content.json"),
+    "{}\n",
+  );
+  await assert.rejects(() => verifyGeneration(output), /digest mismatch/);
+});
+
+test("deployment plan is a credential-free customer-side handoff", async () => {
+  const handoff = await deploymentPlan(base, "test", "fabric");
+  assert.equal(handoff.contract, "ingestron.deployment-handoff/v1");
+  assert.equal(handoff.mutatesTarget, false);
+  assert.equal(handoff.requiredExecution, "customer-terminal-or-ci");
+  assert.equal(handoff.applyAvailable, false);
+  assert.deepEqual(handoff.requiredApprovals, ["semantic", "platform"]);
+  assert.deepEqual(handoff.targetBinding, {
+    platform: "fabric",
+    workspaceId: "33333333-3333-3333-3333-333333333333",
+  });
+  assert.match(String(handoff.targetBindingDigest), /^sha256:[a-f0-9]{64}$/);
+  assert.doesNotMatch(JSON.stringify(handoff), /fabricIdentity|clientId/);
+});
+
+test("Synapse reuses the versioned ADF source generator with an exact workspace binding", async () => {
+  const plan = await planGeneration(base, "test", "synapse");
+  assert.equal(plan.generator.implementation, "adf");
+  const handoff = await deploymentPlan(base, "test", "synapse");
+  assert.equal(
+    (handoff.targetBinding as Record<string, unknown>).platform,
+    "synapse",
+  );
+  assert.equal(
+    (handoff.targetBinding as Record<string, unknown>).workspaceName,
+    "synapse-ingestron-test",
+  );
+});

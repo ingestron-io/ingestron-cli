@@ -215,7 +215,7 @@ test("repository is public-source ready with release-only distribution", async (
   assert.equal(pkg.private, true);
   assert.ok(pkg.files.includes("dist"));
   assert.ok(pkg.files.includes("bundles"));
-  assert.equal(pkg.version, "0.3.9-preview.1");
+  assert.equal(pkg.version, "0.3.10-preview.1");
   assert.equal(pkg.license, "Apache-2.0");
   const release = await readFile(".github/workflows/release.yml", "utf8");
   assert.match(release, /gh release create/);
@@ -231,7 +231,7 @@ test("pnpm-style forwarded separator is accepted", () => {
   const envelope = JSON.parse(output);
   assert.equal(envelope.ok, true);
   assert.equal(envelope.command, "version");
-  assert.equal(envelope.result.version, "0.3.9-preview.1");
+  assert.equal(envelope.result.version, "0.3.10-preview.1");
 });
 
 test("help does not require command options", () => {

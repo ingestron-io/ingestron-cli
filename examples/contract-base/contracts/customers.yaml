@@ -1,0 +1,25 @@
+apiVersion: datacontract.com/v1
+kind: DataContract
+metadata:
+  id: customers
+  name: Customers
+  version: 1.0.0
+description: Governed customer master used by the orders product.
+source:
+  platform: fabric
+  dataset: crm.customers
+target:
+  name: '{{ env.values.namePrefix | default("dev") }}_customers'
+  layer: bronze
+schema:
+  fields:
+    - name: customer_id
+      type: string
+      required: true
+    - name: country_code
+      type: string
+      required: true
+controls:
+  naming:
+    $ref: standard://platform#/naming
+  reconciliation: source-target-count

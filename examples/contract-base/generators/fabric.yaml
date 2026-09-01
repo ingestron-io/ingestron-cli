@@ -1,0 +1,23 @@
+apiVersion: ingestron.io/v1alpha1
+kind: GeneratorConfig
+metadata:
+  id: fabric
+  name: Fabric development source
+implementation: fabric
+version: 1.0.0
+standards: []
+products:
+  - customer-orders
+contracts:
+  - orders
+  - customers
+target:
+  workspaceId: "{{ env.targets.fabric.workspaceId }}"
+output:
+  format: fabric-git
+  files:
+    - path: definitions/<target>.create.json
+      purpose: Fabric DataPipeline deployment definition
+  workflow:
+    - ingest
+    - publish

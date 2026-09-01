@@ -1,0 +1,37 @@
+apiVersion: ingestron.io/v1alpha1
+kind: GeneratorConfig
+metadata:
+  id: adf
+  name: Azure Data Factory Git source
+implementation: adf
+version: 1.1.0
+standards:
+  - platform
+products:
+  - customer-orders
+contracts:
+  - orders
+  - customers
+target:
+  factoryResourceId: "{{ env.targets.adf.factoryResourceId }}"
+schedule:
+  enabled: true
+  activation: manual
+  frequency: Day
+  interval: 1
+  timeZone: UTC
+  startTime: "{{ env.values.scheduleStartTime }}"
+output:
+  format: adf-git
+  files:
+    - path: factory/pipelines/pl_<target>.json
+      purpose: Contract-driven source-to-Bronze orchestration
+    - path: factory/datasets/ds_<contract>_bronze.json
+      purpose: Parquet Bronze handoff dataset
+    - path: factory/triggers/tr_<product>.json
+      purpose: Manual-activation schedule definition
+    - path: factory/factory-parameters.json
+      purpose: Environment-safe deployment parameters
+  workflow:
+    - copy_to_bronze
+    - capture_reconciliation

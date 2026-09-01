@@ -13,6 +13,7 @@ import {
   adfConnectionTest,
 } from "../src/connections.js";
 import { CliError } from "../src/errors.js";
+import { adfInventoryExport } from "../src/adf-inventory.js";
 
 const subscription = "11111111-1111-1111-1111-111111111111";
 const factoryId = `/subscriptions/${subscription}/resourceGroups/demo-rg/providers/Microsoft.DataFactory/factories/demo-adf`;
@@ -139,6 +140,92 @@ test("guided connection workflow returns safe metadata only", async () => {
   assert.equal(tested.definitionReachable, true);
   assert.equal(tested.dataPlaneProbed, false);
   assert.doesNotMatch(JSON.stringify(tested), /must-not-leave/);
+});
+
+test("ADF inventory export produces a bounded Blueprint-compatible document", async () => {
+  const { directory, configPath } = await fixture();
+  const output = join(directory, "factory-inventory.json");
+  const calls: string[][] = [];
+  const runner: CommandRunner = async (args) => {
+    calls.push(args);
+    if (args[0] === "account") return { id: subscription };
+    return [
+      {
+        name: "orders-source",
+        properties: {
+          type: "AzureSqlTable",
+          linkedServiceName: { referenceName: "finance-sql" },
+          typeProperties: { schema: "sales", table: "orders" },
+          schema: [
+            { name: "order_id", type: "String", nullable: false },
+            { name: "amount", type: "Decimal" },
+          ],
+          annotations: ["must-not-be-exported"],
+          parameters: { password: { defaultValue: "must-not-leave-azure" } },
+        },
+      },
+      {
+        name: "landing-files",
+        properties: {
+          type: "DelimitedText",
+          linkedServiceName: { referenceName: "landing-adls" },
+          typeProperties: {
+            location: {
+              type: "AzureBlobFSLocation",
+              fileSystem: "landing",
+              folderPath: "finance/orders",
+            },
+          },
+          schema: [],
+        },
+      },
+    ];
+  };
+  const result = await adfInventoryExport(
+    configPath,
+    "finance-platform",
+    "finance",
+    output,
+    runner,
+  );
+  assert.equal(result.datasets, 2);
+  assert.equal(result.sourceRowsReturned, false);
+  assert.equal(result.securePropertiesReturned, false);
+  assert.equal(
+    calls[1]?.slice(0, 4).join(" "),
+    "datafactory dataset list --subscription",
+  );
+  const bytes = await readFile(output, "utf8");
+  const document = JSON.parse(bytes) as {
+    contract: string;
+    datasets: Array<Record<string, unknown>>;
+  };
+  assert.equal(document.contract, "ingestron.discovery.adf/v1");
+  assert.deepEqual(document.datasets[0], {
+    name: "orders-source",
+    domain: "finance",
+    linkedService: "finance-sql",
+    type: "AzureSqlTable",
+    schemaName: "sales",
+    table: "orders",
+    columns: [
+      { name: "order_id", logicalType: "String", nullable: false },
+      { name: "amount", logicalType: "Decimal", nullable: true },
+    ],
+  });
+  assert.equal(document.datasets[1]?.path, "landing/finance/orders");
+  assert.doesNotMatch(bytes, /must-not|password|parameter|annotation/i);
+  await assert.rejects(
+    adfInventoryExport(
+      configPath,
+      "finance-platform",
+      "finance",
+      output,
+      runner,
+    ),
+    (error: unknown) =>
+      error instanceof CliError && error.code === "FILE_EXISTS",
+  );
 });
 
 test("connection add refuses replacement and capability escalation", async () => {

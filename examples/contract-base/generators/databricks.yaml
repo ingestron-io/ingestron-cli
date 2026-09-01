@@ -1,0 +1,35 @@
+apiVersion: ingestron.io/v1alpha1
+kind: GeneratorConfig
+metadata:
+  id: databricks
+  name: Databricks Asset Bundle source
+implementation: databricks
+version: 1.0.0
+standards:
+  - platform
+products:
+  - customer-orders
+contracts:
+  - orders
+  - customers
+target:
+  workspaceHost: "{{ env.targets.databricks.workspaceHost }}"
+  rootPath: "{{ env.targets.databricks.rootPath }}"
+handoff:
+  bronzeRootPath: "{{ env.targets.databricks.bronzeRootPath }}"
+output:
+  format: databricks-asset-bundle
+  files:
+    - path: databricks.yml
+      purpose: Bundle identity, variables and workspace target
+    - path: resources/<contract>.job.yml
+      purpose: Governed Bronze-to-Silver-to-Gold workflow
+    - path: src/<contract>.py
+      purpose: Typed Delta transformations generated from ODCS
+    - path: src/reconcile.py
+      purpose: Bounded Bronze-to-Gold reconciliation evidence
+  workflow:
+    - validate_bronze
+    - build_silver
+    - publish_gold
+    - reconcile

@@ -1,0 +1,18 @@
+apiVersion: ingestron.io/v1alpha1
+kind: ContractBase
+metadata:
+  id: finance-platform
+  name: Finance data platform
+paths:
+  products: products
+  contracts: contracts
+  standards: standards
+  generators: generators
+  environments: environments
+inputs:
+  releaseName:
+    type: string
+    default: working
+  includeMaintenance:
+    type: boolean
+    default: true

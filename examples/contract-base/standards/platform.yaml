@@ -1,0 +1,59 @@
+apiVersion: ingestron.io/v1alpha1
+kind: StandardsPack
+metadata:
+  id: platform
+  name: Lakehouse delivery standards
+  version: 1.0.0
+  description: ADF or Synapse ingestion into a governed Databricks medallion pipeline.
+architecture:
+  pattern: adf-databricks-medallion
+  ingestion:
+    platforms:
+      - adf
+      - synapse
+    responsibility: source-to-bronze
+  handoff:
+    contract: ingestron.medallion-handoff/v1
+    format: parquet
+    compression: snappy
+    ownership: ingestion-writes-databricks-reads
+  processing:
+    platform: databricks
+    stages:
+      - validate_bronze
+      - build_silver
+      - publish_gold
+      - reconcile
+naming:
+  case: snake_case
+  maximumLength: 128
+  reservedWords:
+    - select
+    - table
+logging:
+  includePayload: false
+  correlationId: required
+quality:
+  bronzeContractValidation: required
+  schemaEvolution: fail-on-breaking
+  reconciliation: bronze-to-gold-count
+operations:
+  retries: 2
+  retryIntervalSeconds: 60
+  deploymentMode: customer-runner
+  activation: manual
+compatibility:
+  generators:
+    adf:
+      versions:
+        - 1.0.0
+        - 1.1.0
+      role: source-to-bronze
+    synapse:
+      versions:
+        - 1.0.0
+      role: source-to-bronze
+    databricks:
+      versions:
+        - 1.0.0
+      role: bronze-to-gold

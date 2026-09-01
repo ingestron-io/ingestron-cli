@@ -1,0 +1,35 @@
+apiVersion: ingestron.io/v1alpha1
+kind: Environment
+metadata:
+  id: prod
+  name: Production
+values:
+  namePrefix: fin_prod
+  retentionDays: 90
+  scheduleStartTime: "2026-01-01T00:00:00Z"
+targets:
+  fabric:
+    workspaceId: 55555555-5555-5555-5555-555555555555
+  adf:
+    factoryResourceId: /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-ingestron-prod/providers/Microsoft.DataFactory/factories/adf-ingestron-prod
+  synapse:
+    workspaceName: synapse-ingestron-prod
+    replacements:
+      __BIND_SOURCE_LINKED_SERVICE__: ls_finance_source
+      __BIND_TARGET_LINKED_SERVICE__: ls_finance_bronze
+      __BIND_SOURCE_TYPE__: AzureSqlSource
+      __BIND_SINK_TYPE__: AzureSqlSink
+      __BIND_DATASET_TYPE__: AzureSqlTable
+      __BIND_TARGET_DATASET_TYPE__: AzureSqlTable
+  databricks:
+    workspaceHost: https://adb-3000000000000000.0.azuredatabricks.net
+    rootPath: /Workspace/Shared/ingestron/prod
+    bronzeRootPath: abfss://bronze@stingingestronprod.dfs.core.windows.net
+    replacements:
+      __BIND_JOB_CLUSTER__: ingestron_job_cluster
+      __BIND_SPARK_VERSION__: 15.4.x-scala2.12
+      __BIND_NODE_TYPE_ID__: Standard_DS3_v2
+secretRefs:
+  fabricIdentity:
+    provider: azure-managed-identity
+    clientId: 66666666-6666-6666-6666-666666666666

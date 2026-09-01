@@ -22,9 +22,18 @@ import {
   adfConnectionPlan,
   adfConnectionTest,
 } from "./connections.js";
+import { adfInventoryExport } from "./adf-inventory.js";
 import { CliError } from "./errors.js";
 import { asCliError, emit, type OutputMode } from "./io.js";
 import { checkContract, validateRecipe, verifyPackage } from "./validate.js";
+import { runBlueprint } from "./product.js";
+import {
+  buildGeneration,
+  deploymentPlan,
+  planGeneration,
+  resolveProject,
+  verifyGeneration,
+} from "./project.js";
 import {
   azureAdfConfig,
   azureInit,
@@ -44,17 +53,62 @@ const output: OutputMode =
   args.includes("--output") && args[args.indexOf("--output") + 1] === "json"
     ? "json"
     : "human";
+const requestedLogFormat =
+  args.includes("--log-format") && args[args.indexOf("--log-format") + 1]
+    ? args[args.indexOf("--log-format") + 1]
+    : process.env.INGESTRON_CLI_LOG_FORMAT;
+const logFormat =
+  requestedLogFormat === "ndjson" ||
+  requestedLogFormat === "pretty" ||
+  requestedLogFormat === "quiet"
+    ? requestedLogFormat
+    : process.stderr.isTTY && output === "human"
+      ? "pretty"
+      : "quiet";
 const filtered = args.filter(
   (arg, index) =>
     !(arg === "--output" || args[index - 1] === "--output") &&
+    !(arg === "--log-format" || args[index - 1] === "--log-format") &&
     arg !== "--no-colour",
 );
 const command = filtered.slice(0, 2).join(" ") || "help";
 const docsUrl = "https://docs.ingestron.io/docs/deployment/cli-reference";
-const usage = `Commands: version; recipe validate; contract check; package verify; adf init|migrate|plan|install|status|verify|upgrade|rollback|plan-uninstall|uninstall; adf connection discover|add|plan|test; azure init|plan|install|status|verify|upgrade|rollback|adf-config|plan-uninstall|uninstall. Profiles: ${adfProfiles.join(", ")}. Docs: ${docsUrl}`;
+const usage = `Commands: version; recipe validate; contract check; package verify; project validate|resolve; gen plan|build|verify; deploy plan; product import|requirements|resolve|plan|diff|approve|export-odcs|generate|verify; adf init|migrate|plan|install|status|verify|upgrade|rollback|plan-uninstall|uninstall; adf connection discover|add|plan|test; adf inventory export; azure init|plan|install|status|verify|upgrade|rollback|adf-config|plan-uninstall|uninstall. Profiles: ${adfProfiles.join(", ")}. Docs: ${docsUrl}`;
 const azureInitUsage =
   "ingestron azure init --subscription <subscription-id> --resource-group <name> --location <region> --resource-suffix <suffix> --deployment-mode <temporary-proof|persistent-demo> --ingress-mode <disabled|entra-public> --entra-application-client-id <id> --allowed-client-application-id <id> --pipeline-caller-principal-id <id> --planned-usd <amount> [--config <path>] [--name <name>] [--expires-on <date>]. Docs: " +
   docsUrl;
+
+type ProgressLevel = "info" | "success" | "error";
+
+function progress(
+  phase: string,
+  message: string,
+  level: ProgressLevel = "info",
+  data?: Record<string, unknown>,
+): void {
+  if (logFormat === "quiet") return;
+  const event = {
+    contract: "ingestron.cli-event/v1",
+    timestamp: new Date().toISOString(),
+    command,
+    phase,
+    level,
+    message,
+    ...(data ? { data } : {}),
+  };
+  if (logFormat === "ndjson") {
+    process.stderr.write(`${JSON.stringify(event)}\n`);
+    return;
+  }
+  const colour =
+    level === "success"
+      ? "\u001b[32m"
+      : level === "error"
+        ? "\u001b[31m"
+        : "\u001b[36m";
+  const mark = level === "success" ? "✓" : level === "error" ? "✕" : "◆";
+  process.stderr.write(`${colour}${mark}\u001b[0m ${message}\n`);
+}
 
 const option = (name: string) => {
   const index = filtered.indexOf(name);
@@ -69,6 +123,27 @@ const requiredPath = (index: number, label: string) => {
   const value = filtered[index];
   if (!value) throw new CliError("USAGE", `${label} is required`, 2);
   return value;
+};
+const declaredInputs = (): Record<string, string> => {
+  const values: Record<string, string> = {};
+  for (let index = 0; index < filtered.length; index += 1) {
+    if (filtered[index] !== "--set") continue;
+    const assignment = filtered[index + 1];
+    if (!assignment || !assignment.includes("="))
+      throw new CliError("USAGE", "--set must be name=value", 2);
+    const separator = assignment.indexOf("=");
+    const name = assignment.slice(0, separator);
+    if (!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(name))
+      throw new CliError("USAGE", "--set input name is invalid", 2);
+    if (Object.hasOwn(values, name))
+      throw new CliError(
+        "USAGE",
+        `--set ${name} was provided more than once`,
+        2,
+      );
+    values[name] = assignment.slice(separator + 1);
+  }
+  return values;
 };
 
 async function run(): Promise<unknown> {
@@ -92,6 +167,113 @@ async function run(): Promise<unknown> {
     return checkContract(requiredPath(2, "contract path"));
   if (filtered[0] === "package" && filtered[1] === "verify")
     return verifyPackage(requiredPath(2, "package directory"));
+  if (filtered[0] === "project") {
+    const base = requiredPath(2, "contract-base path");
+    const environment = requiredOption("--environment");
+    progress("project.resolve", `Resolving contract base for ${environment}`);
+    const resolution = await resolveProject(
+      base,
+      environment,
+      declaredInputs(),
+    );
+    progress(
+      "project.resolve",
+      `Resolved ${Object.keys(resolution.contracts).length} contracts`,
+      "success",
+      {
+        environment,
+        digest: resolution.digest,
+        products: Object.keys(resolution.products).length,
+        contracts: Object.keys(resolution.contracts).length,
+      },
+    );
+    if (filtered[1] === "resolve") return resolution;
+    if (filtered[1] === "validate")
+      return {
+        contract: "ingestron.project-validation/v1",
+        valid: !resolution.findings.some(
+          (finding) => finding.severity === "error",
+        ),
+        project: resolution.project,
+        environment: resolution.environment,
+        digest: resolution.digest,
+        products: Object.keys(resolution.products).length,
+        contracts: Object.keys(resolution.contracts).length,
+        generators: Object.keys(resolution.generators).length,
+        findings: resolution.findings,
+      };
+    throw new CliError("USAGE", "Commands: project validate|resolve", 2);
+  }
+  if (filtered[0] === "gen") {
+    if (filtered[1] === "verify") {
+      const path = requiredPath(2, "output path");
+      progress("generation.verify", "Verifying generated files and digests");
+      const result = await verifyGeneration(path);
+      progress("generation.verify", "Generated output verified", "success");
+      return result;
+    }
+    const base = requiredPath(2, "contract-base path");
+    const environment = requiredOption("--environment");
+    const generator = requiredOption("--generator");
+    if (filtered[1] === "plan") {
+      progress(
+        "generation.plan",
+        `Planning ${generator} assets for ${environment}`,
+      );
+      const result = await planGeneration(
+        base,
+        environment,
+        generator,
+        declaredInputs(),
+      );
+      progress(
+        "generation.plan",
+        `Planned ${result.assets.length} ${generator} assets`,
+        "success",
+        {
+          planDigest: result.planDigest,
+        },
+      );
+      return result;
+    }
+    if (filtered[1] === "build") {
+      progress(
+        "generation.build",
+        `Building deterministic ${generator} source`,
+      );
+      const result = await buildGeneration(
+        base,
+        environment,
+        generator,
+        requiredOption("--out"),
+        declaredInputs(),
+      );
+      progress("generation.build", `${generator} source built`, "success", {
+        files: Array.isArray(result.files) ? result.files.length : undefined,
+        planDigest: result.planDigest,
+      });
+      return result;
+    }
+    throw new CliError("USAGE", "Commands: gen plan|build|verify", 2);
+  }
+  if (filtered[0] === "deploy" && filtered[1] === "plan")
+    return deploymentPlan(
+      requiredPath(2, "contract-base path"),
+      requiredOption("--environment"),
+      requiredOption("--generator"),
+      declaredInputs(),
+    );
+  if (filtered[0] === "product") {
+    const mapped =
+      filtered[1] === "import"
+        ? "import-inventory"
+        : filtered[1] === "requirements"
+          ? "extract-requirements"
+          : filtered[1] === "resolve"
+            ? "resolve-requirements"
+            : (filtered[1] ?? "");
+    return runBlueprint(mapped, filtered.slice(2));
+  }
   if (filtered[0] === "adf") {
     if (filtered[1] === "init") {
       const factoryResourceId = option("--factory-resource-id");
@@ -111,6 +293,16 @@ async function run(): Promise<unknown> {
     }
     const config = option("--config");
     if (!config) throw new CliError("USAGE", "--config is required");
+    if (filtered[1] === "inventory") {
+      if (filtered[2] !== "export")
+        throw new CliError("USAGE", "Commands: adf inventory export");
+      return adfInventoryExport(
+        config,
+        requiredOption("--product"),
+        option("--domain") ?? "default",
+        requiredOption("--out"),
+      );
+    }
     if (filtered[1] === "migrate") {
       const profile = requiredOption("--profile") as AdfProfile;
       return adfMigrate(
@@ -246,13 +438,18 @@ async function run(): Promise<unknown> {
 }
 
 try {
+  progress("command.start", `ingestron ${command}`);
   const result = await run();
+  progress("command.complete", `ingestron ${command} completed`, "success");
   emit(
     { contract: "ingestron.cli-output/v1", ok: true, command, result },
     output,
   );
 } catch (error) {
   const cliError = asCliError(error);
+  progress("command.failed", cliError.message, "error", {
+    code: cliError.code,
+  });
   emit(
     {
       contract: "ingestron.cli-output/v1",
