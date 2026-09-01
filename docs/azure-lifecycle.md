@@ -46,6 +46,31 @@ ingestron azure adf-config --config ingestron.azure.yaml \
   --recipe recipe.yaml
 ```
 
+An existing Bicep-owned Profile J group without a retained CLI lock uses a
+separate fail-closed migration. `adopt-init` reads only non-secret ARM
+deployment parameters and writes a bundle-pinned candidate config.
+`plan-adopt` then requires the exact seven-resource public-ingress inventory,
+matching ownership tags, matching identity/profile parameters and a Bicep
+what-if containing no create, delete or replacement. `adopt --yes` reapplies the
+authoritative bundle and application artefacts and writes a lock only after full
+verification:
+
+```text
+ingestron azure adopt-init \
+  --subscription <approved-subscription-id> \
+  --resource-group <existing-profile-j-group> \
+  --name <installation-name> \
+  --planned-usd <amount> \
+  --config ingestron.azure.yaml
+ingestron azure plan-adopt --config ingestron.azure.yaml
+ingestron azure adopt --config ingestron.azure.yaml --yes
+```
+
+Adoption is not generic Azure-resource import. Bundle `1.9.0` supports only the
+declared `entra-public` Profile J shape; an additional or missing resource,
+private-ingress topology, changed identity boundary or pre-existing unrelated
+lock is rejected.
+
 `1.1.1` intentionally pins the same templates and application artefacts as
 `1.1.0`. It proves an explicit compatible no-change upgrade and
 rollback without suggesting a runtime feature change:
@@ -69,15 +94,17 @@ ingestron azure upgrade --config ingestron.azure.yaml --to 1.2.1 --yes
 ingestron azure rollback --config ingestron.azure.yaml --yes
 ```
 
-New installations use `1.8.0`, which retains the `1.7.0` runtime and adds a
-versioned lifecycle policy. `create` is the operator-friendly name for the
+New installations use `1.9.0`, which retains the `1.7.0` runtime, corrects the
+Flex Consumption lifecycle control and adds exact adoption policy. `create` is the operator-friendly name for the
 existing full `install` path. `pause` stops only bundle-declared compute entry
-points, and `resume` starts only exact resource IDs recorded as stopped by the
+points, and `resume` enables only exact resource IDs recorded as paused by the
 same ownership lock. Both mutations require `--yes`; their `plan-*` commands
 show current and desired state first.
 
-`--scope cost-bearing` is the default and currently selects the Jobs Function
-App. `--scope all` selects every resource the bundle declares pausable. Neither
+`--scope cost-bearing` is the default and currently disables the
+`submitIngestronJob` trigger, preventing ordinary new submissions without using
+an unsupported Flex App Service stop operation. Existing queued and running jobs
+may finish. `--scope all` selects every resource the bundle declares pausable. Neither
 scope deletes retained state. Storage, registry, network and monitoring usage
 can still incur charges, so pause never claims a zero-cost result. A partial
 drop is deliberately unsupported because it could destroy retained data or

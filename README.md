@@ -48,12 +48,12 @@ customer-managed only and is not a whole-dataset join or remediation service.
 
 ## Install the technical preview
 
-Download `ingestron-cli-0.3.10-preview.1.tgz` and `SHA256SUMS` from the GitHub
+Download `ingestron-cli-0.3.11-preview.1.tgz` and `SHA256SUMS` from the GitHub
 Release, verify the checksum, then install the archive with pnpm:
 
 ```sh
 shasum -a 256 --check SHA256SUMS
-pnpm add --global ./ingestron-cli-0.3.10-preview.1.tgz
+pnpm add --global ./ingestron-cli-0.3.11-preview.1.tgz
 ingestron version
 ```
 
@@ -69,7 +69,7 @@ ingestron gen plan|build <contract-base> --environment <id> --generator <id>
 ingestron gen verify <generated-directory>
 ingestron deploy plan <contract-base> --environment <id> --generator <id>
 ingestron adf init|plan|install|status|verify|upgrade|rollback|plan-uninstall|uninstall
-ingestron azure init|plan|install|create|status|verify|plan-pause|pause|plan-resume|resume|upgrade|rollback|adf-config|plan-uninstall|uninstall|drop
+ingestron azure init|adopt-init|plan-adopt|adopt|plan|install|create|status|verify|plan-pause|pause|plan-resume|resume|upgrade|rollback|adf-config|plan-uninstall|uninstall|drop
 ```
 
 The private PB-056 contract-base workflow uses one Git-ready directory containing

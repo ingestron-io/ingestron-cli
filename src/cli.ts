@@ -36,12 +36,15 @@ import {
 } from "./project.js";
 import {
   azureAdfConfig,
+  azureAdopt,
+  azureAdoptInit,
   azureCreate,
   azureDrop,
   azureInit,
   azureInstall,
   azurePause,
   azurePlan,
+  azurePlanAdopt,
   azurePlanLifecycle,
   azurePlanUninstall,
   azureResume,
@@ -79,7 +82,7 @@ const filtered = args.filter(
 );
 const command = filtered.slice(0, 2).join(" ") || "help";
 const docsUrl = "https://docs.ingestron.io/docs/deployment/cli-reference";
-const usage = `Commands: version; recipe validate; contract check; package verify; project validate|resolve; gen plan|build|verify; deploy plan; product import|requirements|resolve|plan|diff|approve|export-odcs|generate|verify; adf init|migrate|plan|install|status|verify|upgrade|rollback|plan-uninstall|uninstall; adf connection discover|add|plan|test; adf inventory export; azure init|plan|install|create|status|verify|plan-pause|pause|plan-resume|resume|upgrade|rollback|adf-config|plan-uninstall|uninstall|drop. Profiles: ${adfProfiles.join(", ")}. Docs: ${docsUrl}`;
+const usage = `Commands: version; recipe validate; contract check; package verify; project validate|resolve; gen plan|build|verify; deploy plan; product import|requirements|resolve|plan|diff|approve|export-odcs|generate|verify; adf init|migrate|plan|install|status|verify|upgrade|rollback|plan-uninstall|uninstall; adf connection discover|add|plan|test; adf inventory export; azure init|adopt-init|plan-adopt|adopt|plan|install|create|status|verify|plan-pause|pause|plan-resume|resume|upgrade|rollback|adf-config|plan-uninstall|uninstall|drop. Profiles: ${adfProfiles.join(", ")}. Docs: ${docsUrl}`;
 const azureInitUsage =
   "ingestron azure init --subscription <subscription-id> --resource-group <name> --location <region> --resource-suffix <suffix> --deployment-mode <temporary-proof|persistent-demo> --ingress-mode <disabled|entra-public> --entra-application-client-id <id> --allowed-client-application-id <id> --pipeline-caller-principal-id <id> --planned-usd <amount> [--config <path>] [--name <name>] [--expires-on <date>]. Docs: " +
   docsUrl;
@@ -389,6 +392,18 @@ async function run(): Promise<unknown> {
     }
   }
   if (filtered[0] === "azure") {
+    if (filtered[1] === "adopt-init") {
+      const plannedUsd = Number(requiredOption("--planned-usd"));
+      if (!Number.isFinite(plannedUsd))
+        throw new CliError("USAGE", "--planned-usd must be a number", 2);
+      return azureAdoptInit(option("--config") ?? "ingestron.azure.yaml", {
+        name: requiredOption("--name"),
+        subscriptionId: requiredOption("--subscription"),
+        resourceGroupName: requiredOption("--resource-group"),
+        plannedUsd,
+        bundleVersion: option("--bundle-version"),
+      });
+    }
     if (filtered[1] === "init") {
       const plannedUsd = Number(requiredOption("--planned-usd"));
       if (!Number.isFinite(plannedUsd))
@@ -427,6 +442,10 @@ async function run(): Promise<unknown> {
     switch (filtered[1]) {
       case "plan":
         return azurePlan(config);
+      case "plan-adopt":
+        return azurePlanAdopt(config);
+      case "adopt":
+        return azureAdopt(config, yes);
       case "install":
         return azureInstall(config, yes);
       case "create":

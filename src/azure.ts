@@ -87,12 +87,13 @@ type AzureManifest = {
     ownedResourceGroup: true;
   };
   lifecyclePolicy?: AzureLifecyclePolicy;
+  adoptionPolicy?: AzureAdoptionPolicy;
   files: Record<string, { sha256: string; size: number }>;
 };
 
 export type AzureLifecycleScope = "cost-bearing" | "all";
 
-type AzureLifecycleTarget = {
+type AzureFunctionAppLifecycleTarget = {
   kind: "azure-function-app";
   resourceType: "Microsoft.Web/sites";
   nameTemplate: string;
@@ -101,6 +102,18 @@ type AzureLifecycleTarget = {
   costClass: string;
 };
 
+type AzureFunctionTriggerLifecycleTarget = {
+  kind: "azure-function-trigger";
+  resourceType: "Microsoft.Web/sites";
+  nameTemplate: string;
+  functionName: string;
+  disabledSetting: string;
+  costClass: string;
+};
+
+type AzureLifecycleTarget =
+  AzureFunctionAppLifecycleTarget | AzureFunctionTriggerLifecycleTarget;
+
 type AzureLifecyclePolicy = {
   contract: "ingestron.azure-lifecycle/v1";
   defaultScope: AzureLifecycleScope;
@@ -108,6 +121,15 @@ type AzureLifecyclePolicy = {
   targets: Record<string, AzureLifecycleTarget>;
   residualCostClasses: string[];
   dropScope: "owned-resource-group-only";
+};
+
+type AzureAdoptionPolicy = {
+  contract: "ingestron.azure-adoption/v1";
+  supportedIngressModes: Array<AzureConfig["profile"]["apiIngressMode"]>;
+  requiredResources: Array<{
+    resourceType: string;
+    nameTemplate: string;
+  }>;
 };
 
 function isLifecyclePolicy(value: unknown): value is AzureLifecyclePolicy {
@@ -128,20 +150,49 @@ function isLifecyclePolicy(value: unknown): value is AzureLifecyclePolicy {
     [...value.scopes["cost-bearing"], ...value.scopes.all].every(
       (target) => typeof target === "string" && targetNames.includes(target),
     ) &&
-    Object.values(value.targets).every(
-      (target) =>
-        isRecord(target) &&
-        target.kind === "azure-function-app" &&
-        target.resourceType === "Microsoft.Web/sites" &&
-        target.pauseVerb === "stop" &&
-        target.resumeVerb === "start" &&
-        typeof target.nameTemplate === "string" &&
-        /^[a-z0-9-]*\{resourceSuffix\}[a-z0-9-]*$/.test(target.nameTemplate) &&
-        typeof target.costClass === "string" &&
-        /^[a-z0-9-]+$/.test(target.costClass),
-    ) &&
+    Object.values(value.targets).every((target) => {
+      if (
+        !isRecord(target) ||
+        target.resourceType !== "Microsoft.Web/sites" ||
+        typeof target.nameTemplate !== "string" ||
+        !/^[a-z0-9-]*\{resourceSuffix\}[a-z0-9-]*$/.test(target.nameTemplate) ||
+        typeof target.costClass !== "string" ||
+        !/^[a-z0-9-]+$/.test(target.costClass)
+      )
+        return false;
+      return target.kind === "azure-function-app"
+        ? target.pauseVerb === "stop" && target.resumeVerb === "start"
+        : target.kind === "azure-function-trigger" &&
+            typeof target.functionName === "string" &&
+            /^[A-Za-z][A-Za-z0-9_]{0,127}$/.test(target.functionName) &&
+            target.disabledSetting ===
+              `AzureWebJobs.${target.functionName}.Disabled`;
+    }) &&
     value.residualCostClasses.every(
       (entry) => typeof entry === "string" && /^[a-z0-9-]+$/.test(entry),
+    )
+  );
+}
+
+function isAdoptionPolicy(value: unknown): value is AzureAdoptionPolicy {
+  return (
+    isRecord(value) &&
+    value.contract === "ingestron.azure-adoption/v1" &&
+    Array.isArray(value.supportedIngressModes) &&
+    value.supportedIngressModes.every((mode) =>
+      ["disabled", "entra-public"].includes(String(mode)),
+    ) &&
+    Array.isArray(value.requiredResources) &&
+    value.requiredResources.length > 0 &&
+    value.requiredResources.every(
+      (resource) =>
+        isRecord(resource) &&
+        typeof resource.resourceType === "string" &&
+        /^[A-Za-z][A-Za-z0-9.]+\/[A-Za-z][A-Za-z0-9]+$/.test(
+          resource.resourceType,
+        ) &&
+        typeof resource.nameTemplate === "string" &&
+        /^[a-z0-9-]*\{resourceSuffix\}[a-z0-9-]*$/.test(resource.nameTemplate),
     )
   );
 }
@@ -197,6 +248,14 @@ export type AzureInitOptions = {
   plannedUsd: number;
   bundleVersion?: string;
   expiresOn?: string;
+};
+
+export type AzureAdoptInitOptions = {
+  name: string;
+  subscriptionId: string;
+  resourceGroupName: string;
+  plannedUsd: number;
+  bundleVersion?: string;
 };
 
 const onlyKeys = (value: Record<string, unknown>, allowed: string[]) => {
@@ -298,7 +357,9 @@ async function loadBundle(version: string, pinnedDigest?: string) {
     manifest.changePolicy.replacementAllowed !== false ||
     manifest.changePolicy.ownedResourceGroup !== true ||
     (manifest.lifecyclePolicy !== undefined &&
-      !isLifecyclePolicy(manifest.lifecyclePolicy))
+      !isLifecyclePolicy(manifest.lifecyclePolicy)) ||
+    (manifest.adoptionPolicy !== undefined &&
+      !isAdoptionPolicy(manifest.adoptionPolicy))
   )
     throw new CliError("BUNDLE_INVALID", "Azure bundle is incompatible");
   const manifestDigest = `sha256:${sha256(manifestBytes)}`;
@@ -864,7 +925,7 @@ export async function azureInit(
       4,
     );
   }
-  const version = options.bundleVersion ?? "1.8.0";
+  const version = options.bundleVersion ?? "1.9.0";
   const bundle = await loadBundle(version);
   if (!/^[a-z][a-z0-9-]{0,62}$/.test(options.name ?? "ingestron"))
     throw new CliError("CONFIG_INVALID", "--name must be a safe identifier");
@@ -954,6 +1015,283 @@ export async function azureInit(
   };
 }
 
+function deploymentValue(
+  deployment: Record<string, unknown>,
+  section: "parameters" | "outputs",
+  name: string,
+) {
+  const properties = isRecord(deployment.properties)
+    ? deployment.properties
+    : undefined;
+  const values =
+    properties && isRecord(properties[section])
+      ? properties[section]
+      : undefined;
+  const entry = values?.[name];
+  return isRecord(entry) ? entry.value : undefined;
+}
+
+async function findProfileDeployment(
+  subscriptionId: string,
+  resourceGroupName: string,
+  runner: CommandRunner,
+) {
+  const listed = await runner([
+    "deployment",
+    "group",
+    "list",
+    "--subscription",
+    subscriptionId,
+    "--resource-group",
+    resourceGroupName,
+    "--output",
+    "json",
+  ]);
+  if (!Array.isArray(listed) || !listed.every(isRecord))
+    throw new CliError(
+      "AZ_OUTPUT_INVALID",
+      "Azure deployment inventory is invalid",
+      4,
+    );
+  const candidates = listed
+    .filter(
+      (entry) =>
+        typeof entry.name === "string" &&
+        isRecord(entry.properties) &&
+        entry.properties.provisioningState === "Succeeded",
+    )
+    .sort((left, right) =>
+      String(
+        isRecord(right.properties) ? right.properties.timestamp : "",
+      ).localeCompare(
+        String(isRecord(left.properties) ? left.properties.timestamp : ""),
+      ),
+    );
+  for (const candidate of candidates) {
+    const deployment = await runner([
+      "deployment",
+      "group",
+      "show",
+      "--subscription",
+      subscriptionId,
+      "--resource-group",
+      resourceGroupName,
+      "--name",
+      String(candidate.name),
+      "--output",
+      "json",
+    ]);
+    if (
+      isRecord(deployment) &&
+      deploymentValue(deployment, "outputs", "profile") === "profile-j"
+    )
+      return deployment;
+  }
+  throw new CliError(
+    "ADOPTION_UNSUPPORTED",
+    "No successful Profile J deployment was found in the resource group",
+    5,
+  );
+}
+
+function adoptionTags(value: unknown, name: string) {
+  const tags: Record<string, string> = {};
+  if (isRecord(value)) {
+    for (const [key, entry] of Object.entries(value)) {
+      if (typeof entry === "string") tags[key] = entry;
+    }
+  }
+  return Object.keys(tags).length
+    ? tags
+    : { "ingestron:owner": "customer", "ingestron:purpose": name };
+}
+
+export async function azureAdoptInit(
+  outputPath: string,
+  options: AzureAdoptInitOptions,
+  runner: CommandRunner = azRunner,
+  artifactVerifier: ArtifactVerifier = verifyArtifacts,
+  artifactDownloader: ArtifactDownloader = defaultArtifactDownloader,
+) {
+  if (!uuidPattern.test(options.subscriptionId))
+    throw new CliError(
+      "CONFIG_INVALID",
+      "--subscription must be an Azure subscription ID",
+      2,
+    );
+  if (!/^[a-z][a-z0-9-]{0,62}$/.test(options.name))
+    throw new CliError("CONFIG_INVALID", "--name must be a safe identifier");
+  if (!Number.isFinite(options.plannedUsd) || options.plannedUsd <= 0)
+    throw new CliError("CONFIG_INVALID", "--planned-usd must be positive");
+  const absolute = resolve(outputPath);
+  if (await lstat(absolute).catch(() => undefined))
+    throw new CliError("FILE_EXISTS", `Refusing to overwrite: ${absolute}`);
+  if (await lstat(lockPathFor(absolute)).catch(() => undefined))
+    throw new CliError(
+      "LOCK_EXISTS",
+      "Refusing adoption initialisation while an Azure ownership lock exists",
+      5,
+    );
+  const account = await runner([
+    "account",
+    "show",
+    "--subscription",
+    options.subscriptionId,
+    "--output",
+    "json",
+  ]);
+  if (
+    !isRecord(account) ||
+    String(account.id).toLowerCase() !== options.subscriptionId.toLowerCase()
+  )
+    throw new CliError(
+      "AZURE_CONTEXT_MISMATCH",
+      "Azure returned a different subscription than the explicit target",
+      4,
+    );
+  const group = await runner([
+    "group",
+    "show",
+    "--subscription",
+    options.subscriptionId,
+    "--name",
+    options.resourceGroupName,
+    "--output",
+    "json",
+  ]);
+  if (!isRecord(group) || typeof group.location !== "string")
+    throw new CliError("AZ_OUTPUT_INVALID", "Azure group is invalid", 4);
+  const deployment = await findProfileDeployment(
+    options.subscriptionId,
+    options.resourceGroupName,
+    runner,
+  );
+  const resourceSuffix = deploymentValue(
+    deployment,
+    "parameters",
+    "resourceSuffix",
+  );
+  const deploymentMode = deploymentValue(
+    deployment,
+    "parameters",
+    "deploymentMode",
+  );
+  const apiIngressMode = deploymentValue(
+    deployment,
+    "parameters",
+    "apiIngressMode",
+  );
+  const entraApplicationClientId = deploymentValue(
+    deployment,
+    "parameters",
+    "entraApplicationClientId",
+  );
+  const allowedClientApplicationIds = deploymentValue(
+    deployment,
+    "parameters",
+    "allowedClientApplicationIds",
+  );
+  const pipelineCallerPrincipalId = deploymentValue(
+    deployment,
+    "parameters",
+    "pipelineCallerPrincipalId",
+  );
+  if (
+    typeof resourceSuffix !== "string" ||
+    !["temporary-proof", "persistent-demo"].includes(String(deploymentMode)) ||
+    !["disabled", "entra-public"].includes(String(apiIngressMode)) ||
+    typeof entraApplicationClientId !== "string" ||
+    !Array.isArray(allowedClientApplicationIds) ||
+    allowedClientApplicationIds.length !== 1 ||
+    typeof pipelineCallerPrincipalId !== "string"
+  )
+    throw new CliError(
+      "ADOPTION_UNSUPPORTED",
+      "Profile J deployment parameters are incomplete",
+      5,
+    );
+  const version = options.bundleVersion ?? "1.9.0";
+  const bundle = await loadBundle(version);
+  if (
+    !bundle.manifest.adoptionPolicy ||
+    !isAdoptionPolicy(bundle.manifest.adoptionPolicy) ||
+    !bundle.manifest.adoptionPolicy.supportedIngressModes.includes(
+      apiIngressMode as AzureConfig["profile"]["apiIngressMode"],
+    )
+  )
+    throw new CliError(
+      "ADOPTION_UNSUPPORTED",
+      `Azure bundle ${version} does not support this ingress inventory`,
+      5,
+    );
+  const directory = dirname(absolute);
+  const packagePath = resolve(
+    directory,
+    "artifacts",
+    bundle.manifest.applicationArtifacts.jobsFunctions.fileName,
+  );
+  await artifactDownloader(
+    bundle.manifest.applicationArtifacts.jobsFunctions.downloadUrl,
+    packagePath,
+    bundle.manifest.applicationArtifacts.jobsFunctions.sha256,
+  );
+  const config: AzureConfig = {
+    apiVersion: "ingestron.azure/v1",
+    kind: "AzureInstallation",
+    metadata: { name: options.name },
+    target: {
+      tenantId: String(account.tenantId),
+      subscriptionId: String(account.id),
+      subscriptionName: String(account.name),
+      resourceGroupName: options.resourceGroupName,
+      location: group.location,
+    },
+    profile: {
+      name: "profile-j",
+      resourceSuffix,
+      deploymentMode:
+        deploymentMode as AzureConfig["profile"]["deploymentMode"],
+      apiIngressMode:
+        apiIngressMode as AzureConfig["profile"]["apiIngressMode"],
+    },
+    identity: {
+      entraApplicationClientId,
+      allowedClientApplicationIds: allowedClientApplicationIds.map(String),
+      pipelineCallerPrincipalId,
+    },
+    artifacts: {
+      workerImageSource: `https://${bundle.manifest.applicationArtifacts.workerImage.registry}/${bundle.manifest.applicationArtifacts.workerImage.repository}@sha256:${bundle.manifest.applicationArtifacts.workerImage.sha256}`,
+      jobsFunctionsPackage: relative(directory, packagePath).replaceAll(
+        "\\",
+        "/",
+      ),
+    },
+    cost: { plannedUsd: options.plannedUsd },
+    tags: adoptionTags(
+      deploymentValue(deployment, "parameters", "tags"),
+      options.name,
+    ),
+    bundle: { version, digest: bundle.manifestDigest },
+  };
+  await artifactVerifier(absolute, config, bundle.manifest);
+  await assertGroupOwnership(config, runner);
+  await writeFile(absolute, stringify(config, { lineWidth: 0 }), {
+    encoding: "utf8",
+    mode: 0o600,
+    flag: "wx",
+  });
+  await readAzureConfig(absolute);
+  return {
+    action: "adopt-init",
+    configPath: absolute,
+    target: config.target,
+    profile: config.profile,
+    bundle: config.bundle,
+    sourceDeployment: String(deployment.name),
+    next: `ingestron azure plan-adopt --config ${absolute}`,
+  };
+}
+
 async function planConfig(
   configPath: string,
   config: AzureConfig,
@@ -1013,6 +1351,164 @@ export async function azurePlan(
 ) {
   const config = await readAzureConfig(configPath);
   return planConfig(configPath, config, runner, artifactVerifier);
+}
+
+function requireAdoptionPolicy(manifest: AzureManifest) {
+  if (!manifest.adoptionPolicy || !isAdoptionPolicy(manifest.adoptionPolicy))
+    throw new CliError(
+      "ADOPTION_UNSUPPORTED",
+      `Azure bundle ${manifest.bundleVersion} has no compatible adoption policy`,
+      5,
+    );
+  return manifest.adoptionPolicy;
+}
+
+function expectedAdoptionResources(
+  config: AzureConfig,
+  policy: AzureAdoptionPolicy,
+) {
+  return policy.requiredResources
+    .map(
+      (resource) =>
+        `${resourceGroupId(config)}/providers/${resource.resourceType}/${resource.nameTemplate.replace("{resourceSuffix}", config.profile.resourceSuffix)}`,
+    )
+    .sort((left, right) => left.localeCompare(right));
+}
+
+async function adoptionLock(configPath: string, config: AzureConfig) {
+  const exists = await lstat(lockPathFor(configPath)).catch(() => undefined);
+  if (!exists) return undefined;
+  const lock = await readLock(configPath);
+  if (
+    lock.state !== "installing" ||
+    lock.installation !== config.metadata.name ||
+    lock.ownedResourceGroupId.toLowerCase() !==
+      resourceGroupId(config).toLowerCase() ||
+    lock.configDigest !== configDigest(config) ||
+    lock.ownedResources.length !== 0
+  )
+    throw new CliError(
+      "LOCK_EXISTS",
+      "Adoption requires no lock or its own matching interrupted installation lock",
+      5,
+    );
+  return lock;
+}
+
+export async function azurePlanAdopt(
+  configPath: string,
+  runner: CommandRunner = azRunner,
+  artifactVerifier: ArtifactVerifier = verifyArtifacts,
+) {
+  const config = await readAzureConfig(configPath);
+  await assertIdentity(config, runner);
+  const pending = await adoptionLock(configPath, config);
+  const bundle = await loadBundle(config.bundle.version, config.bundle.digest);
+  await artifactVerifier(configPath, config, bundle.manifest);
+  const policy = requireAdoptionPolicy(bundle.manifest);
+  if (!policy.supportedIngressModes.includes(config.profile.apiIngressMode))
+    throw new CliError(
+      "ADOPTION_UNSUPPORTED",
+      `Bundle ${bundle.manifest.bundleVersion} does not adopt ${config.profile.apiIngressMode} inventory`,
+      5,
+    );
+  if (config.cost.plannedUsd > bundle.manifest.monthlyCostCeilingUsd)
+    throw new CliError(
+      "COST_BOUND_EXCEEDED",
+      "Planned cost exceeds the Azure bundle ceiling",
+      5,
+    );
+  if (!(await groupExists(config, runner)))
+    throw new CliError(
+      "ADOPTION_UNSUPPORTED",
+      "Adoption requires an existing Azure resource group",
+      5,
+    );
+  await assertGroupOwnership(config, runner);
+  const actual = await listResourceIds(config, runner);
+  const expected = expectedAdoptionResources(config, policy);
+  const actualByLower = new Map(actual.map((id) => [id.toLowerCase(), id]));
+  const expectedByLower = new Map(expected.map((id) => [id.toLowerCase(), id]));
+  const missingResources = expected.filter(
+    (id) => !actualByLower.has(id.toLowerCase()),
+  );
+  const unexpectedResources = actual.filter(
+    (id) => !expectedByLower.has(id.toLowerCase()),
+  );
+  if (missingResources.length || unexpectedResources.length)
+    throw new CliError(
+      "OWNERSHIP_COLLISION",
+      "Existing Profile J inventory does not match the bundle adoption policy",
+      5,
+      { missingResources, unexpectedResources },
+    );
+  const deployment = await findProfileDeployment(
+    config.target.subscriptionId,
+    config.target.resourceGroupName,
+    runner,
+  );
+  const sourceBoundary = {
+    resourceSuffix: deploymentValue(deployment, "parameters", "resourceSuffix"),
+    deploymentMode: deploymentValue(deployment, "parameters", "deploymentMode"),
+    apiIngressMode: deploymentValue(deployment, "parameters", "apiIngressMode"),
+    entraApplicationClientId: deploymentValue(
+      deployment,
+      "parameters",
+      "entraApplicationClientId",
+    ),
+    allowedClientApplicationIds: deploymentValue(
+      deployment,
+      "parameters",
+      "allowedClientApplicationIds",
+    ),
+    pipelineCallerPrincipalId: deploymentValue(
+      deployment,
+      "parameters",
+      "pipelineCallerPrincipalId",
+    ),
+  };
+  if (
+    sourceBoundary.resourceSuffix !== config.profile.resourceSuffix ||
+    sourceBoundary.deploymentMode !== config.profile.deploymentMode ||
+    sourceBoundary.apiIngressMode !== config.profile.apiIngressMode ||
+    sourceBoundary.entraApplicationClientId !==
+      config.identity.entraApplicationClientId ||
+    JSON.stringify(sourceBoundary.allowedClientApplicationIds) !==
+      JSON.stringify(config.identity.allowedClientApplicationIds) ||
+    sourceBoundary.pipelineCallerPrincipalId !==
+      config.identity.pipelineCallerPrincipalId
+  )
+    throw new CliError(
+      "OWNERSHIP_COLLISION",
+      "Adoption config does not match the latest successful Profile J deployment boundary",
+      5,
+    );
+  const foundation = inspectWhatIf(
+    await runner(foundationArgs("what-if", config, bundle.foundation)),
+    config,
+    ["Ignore", "NoChange", "Modify"],
+    "foundation",
+  );
+  const runtime = inspectWhatIf(
+    await runner(
+      runtimeArgs("what-if", config, bundle.manifest, bundle.runtime),
+    ),
+    config,
+    ["Ignore", "NoChange", "Modify"],
+    "runtime",
+  );
+  return {
+    action: "plan-adopt",
+    target: config.target,
+    profile: config.profile,
+    bundle: config.bundle,
+    sourceDeployment: String(deployment.name),
+    resources: actual,
+    foundation,
+    runtime,
+    recovery: Boolean(pending),
+    next: `ingestron azure adopt --config ${resolve(configPath)} --yes`,
+  };
 }
 
 function outputValue(value: unknown, name: string): unknown {
@@ -1297,6 +1793,39 @@ async function applyConfig(
   };
 }
 
+export async function azureAdopt(
+  configPath: string,
+  yes: boolean,
+  runner: CommandRunner = azRunner,
+  localRunner: LocalRunner = defaultLocalRunner,
+  artifactVerifier: ArtifactVerifier = verifyArtifacts,
+) {
+  if (!yes)
+    throw new CliError(
+      "CONFIRMATION_REQUIRED",
+      "Azure adoption requires --yes after reviewing the exact adoption plan",
+      3,
+    );
+  const plan = await azurePlanAdopt(configPath, runner, artifactVerifier);
+  const config = await readAzureConfig(configPath);
+  const previous = await adoptionLock(configPath, config);
+  const result = await applyConfig(
+    configPath,
+    config,
+    runner,
+    localRunner,
+    previous,
+    artifactVerifier,
+  );
+  const verified = await azureVerify(configPath, runner);
+  return {
+    ...result,
+    action: "adopt",
+    adoptionPlan: plan,
+    verified: verified.valid,
+  };
+}
+
 export async function azureInstall(
   configPath: string,
   yes: boolean,
@@ -1462,6 +1991,55 @@ async function functionAppState(
   return String(value.state) as "Running" | "Stopped";
 }
 
+async function functionTriggerState(
+  config: AzureConfig,
+  name: string,
+  disabledSetting: string,
+  runner: CommandRunner,
+) {
+  const value = await runner([
+    "functionapp",
+    "config",
+    "appsettings",
+    "list",
+    "--subscription",
+    config.target.subscriptionId,
+    "--resource-group",
+    config.target.resourceGroupName,
+    "--name",
+    name,
+    "--output",
+    "json",
+  ]);
+  if (!Array.isArray(value) || !value.every(isRecord))
+    throw new CliError(
+      "AZ_OUTPUT_INVALID",
+      `Azure returned no valid app-setting inventory for Function App ${name}`,
+      4,
+    );
+  const setting = value.find((entry) => entry.name === disabledSetting);
+  if (!setting) return "Running" as const;
+  const disabled = String(setting.value).toLowerCase();
+  if (!["true", "false"].includes(disabled))
+    throw new CliError(
+      "AZ_OUTPUT_INVALID",
+      `Azure returned an invalid lifecycle setting for Function App ${name}`,
+      4,
+    );
+  return disabled === "true" ? ("Stopped" as const) : ("Running" as const);
+}
+
+async function lifecycleTargetState(
+  config: AzureConfig,
+  name: string,
+  target: AzureLifecycleTarget,
+  runner: CommandRunner,
+) {
+  return target.kind === "azure-function-trigger"
+    ? functionTriggerState(config, name, target.disabledSetting, runner)
+    : functionAppState(config, name, runner);
+}
+
 export async function azurePlanLifecycle(
   configPath: string,
   lifecycleAction: "pause" | "resume",
@@ -1501,7 +2079,7 @@ export async function azurePlanLifecycle(
       );
     if (lifecycleAction === "resume" && !recordedPaused.has(lockedResourceId))
       continue;
-    const state = await functionAppState(config, name, runner);
+    const state = await lifecycleTargetState(config, name, target, runner);
     const desiredState = lifecycleAction === "pause" ? "Stopped" : "Running";
     operations.push({
       target: targetKey,
@@ -1509,6 +2087,9 @@ export async function azurePlanLifecycle(
       resourceId: lockedResourceId,
       resourceName: name,
       costClass: target.costClass,
+      ...(target.kind === "azure-function-trigger"
+        ? { disabledSetting: target.disabledSetting }
+        : {}),
       currentState: state,
       desiredState,
       changeRequired: state !== desiredState,
@@ -1522,7 +2103,7 @@ export async function azurePlanLifecycle(
     zeroCostGuaranteed: false,
     note:
       lifecycleAction === "pause"
-        ? "Pause stops declared compute entry points; retained Azure services can continue to incur charges."
+        ? "Pause disables declared workload-intake triggers; in-flight jobs and retained Azure services can continue to incur charges."
         : "Resume starts only resources previously paused by this ownership lock.",
   };
 }
@@ -1550,21 +2131,48 @@ async function applyLifecycle(
   );
   for (const operation of plan.operations) {
     if (!operation.changeRequired) continue;
-    await runner([
-      "functionapp",
-      lifecycleAction === "pause" ? "stop" : "start",
-      "--subscription",
-      config.target.subscriptionId,
-      "--resource-group",
-      config.target.resourceGroupName,
-      "--name",
-      operation.resourceName,
-      "--output",
-      "json",
-    ]);
-    const state = await functionAppState(
+    if (operation.kind === "azure-function-trigger") {
+      await runner([
+        "functionapp",
+        "config",
+        "appsettings",
+        "set",
+        "--subscription",
+        config.target.subscriptionId,
+        "--resource-group",
+        config.target.resourceGroupName,
+        "--name",
+        operation.resourceName,
+        "--settings",
+        `${operation.disabledSetting}=${lifecycleAction === "pause" ? "true" : "false"}`,
+        "--output",
+        "none",
+      ]);
+    } else {
+      await runner([
+        "functionapp",
+        lifecycleAction === "pause" ? "stop" : "start",
+        "--subscription",
+        config.target.subscriptionId,
+        "--resource-group",
+        config.target.resourceGroupName,
+        "--name",
+        operation.resourceName,
+        "--output",
+        "json",
+      ]);
+    }
+    const bundle = await loadBundle(
+      config.bundle.version,
+      config.bundle.digest,
+    );
+    const target = requireLifecyclePolicy(bundle.manifest).targets[
+      operation.target
+    ]!;
+    const state = await lifecycleTargetState(
       config,
       operation.resourceName,
+      target,
       runner,
     );
     if (state !== operation.desiredState)

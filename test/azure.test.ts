@@ -9,12 +9,15 @@ import { parse, stringify } from "yaml";
 import type { CommandRunner } from "../src/adf.js";
 import {
   azureAdfConfig,
+  azureAdopt,
+  azureAdoptInit,
   azureCreate,
   azureDrop,
   azureInit,
   azureInstall,
   azurePause,
   azurePlan,
+  azurePlanAdopt,
   azurePlanLifecycle,
   azurePlanUninstall,
   azureRollback,
@@ -65,6 +68,15 @@ const resourceIds = [
   `${groupId}/providers/Microsoft.ContainerRegistry/registries/ingjcrtestj01`,
   `${groupId}/providers/Microsoft.Storage/storageAccounts/ingjtestj01`,
   `${groupId}/providers/Microsoft.Web/sites/func-ing-j-testj01`,
+].sort();
+const adoptionResourceIds = [
+  `${groupId}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-ing-j-testj01`,
+  `${groupId}/providers/Microsoft.ContainerRegistry/registries/ingjcrtestj01`,
+  `${groupId}/providers/Microsoft.App/managedEnvironments/cae-ing-j-testj01`,
+  `${groupId}/providers/Microsoft.Storage/storageAccounts/ingjtestj01`,
+  `${groupId}/providers/Microsoft.Web/serverFarms/plan-ing-j-testj01`,
+  `${groupId}/providers/Microsoft.Web/sites/func-ing-j-testj01`,
+  `${groupId}/providers/Microsoft.App/jobs/job-ing-j-testj01`,
 ].sort();
 
 const artifactVerifier: ArtifactVerifier = async (configPath) =>
@@ -130,12 +142,16 @@ function fakeAzure(
     foundationNoise?: boolean;
     workerDigest?: string;
     functionState?: "Running" | "Stopped";
+    functionDisabled?: boolean;
+    adoption?: boolean;
+    currentJobs?: boolean;
   } = {},
 ) {
   let exists = options.existing ?? false;
   let failCreateOnce = options.failCreateOnce ?? false;
   const workerDigest = options.workerDigest ?? imageDigest;
   let functionState = options.functionState ?? "Running";
+  let functionDisabled = options.functionDisabled ?? false;
   const calls: string[][] = [];
   const runner: CommandRunner = async (args) => {
     calls.push(args);
@@ -149,12 +165,51 @@ function fakeAzure(
     if (args[0] === "group" && args[1] === "show")
       return {
         id: groupId,
+        location: "australiaeast",
         tags: {
           "ingestron:programme": "ingestron",
           "ingestron:profile": "profile-j",
           "ingestron:lifecycle": "temporary-proof",
           "ingestron:managed-by": "bicep",
           "ingestron:monthly-cost-ceiling-usd": "50",
+        },
+      };
+    if (args[0] === "deployment" && args[1] === "group" && args[2] === "list")
+      return options.adoption
+        ? [
+            {
+              name: "legacy-runtime",
+              properties: {
+                provisioningState: "Succeeded",
+                timestamp: "2026-08-25T00:00:00Z",
+              },
+            },
+          ]
+        : [];
+    if (
+      args[0] === "deployment" &&
+      args[1] === "group" &&
+      args[2] === "show" &&
+      args.includes("legacy-runtime")
+    )
+      return {
+        name: "legacy-runtime",
+        properties: {
+          parameters: {
+            resourceSuffix: { value: "testj01" },
+            deploymentMode: { value: "temporary-proof" },
+            apiIngressMode: { value: "entra-public" },
+            entraApplicationClientId: { value: apiClient },
+            allowedClientApplicationIds: { value: [callerClient] },
+            pipelineCallerPrincipalId: { value: callerPrincipal },
+            tags: {
+              value: {
+                "ingestron:owner": "customer",
+                "ingestron:purpose": "test",
+              },
+            },
+          },
+          outputs: { profile: { value: "profile-j" } },
         },
       };
     if (args[0] === "group" && args[1] === "delete") {
@@ -241,7 +296,9 @@ function fakeAzure(
     }
     if (args[0] === "resource" && args[1] === "list")
       return [
-        ...resourceIds.map((id) => ({ id })),
+        ...(options.adoption ? adoptionResourceIds : resourceIds).map((id) => ({
+          id,
+        })),
         ...(options.drift
           ? [{ id: `${groupId}/providers/Test/drift/unowned` }]
           : []),
@@ -253,9 +310,12 @@ function fakeAzure(
             integration: { value: integration },
             jobsPackage: {
               value: {
-                version: "0.1.0-preview.1",
-                sha256:
-                  "cd28333435a4fa68e528bf49334e3f2499d46ca615b0af395c4b9f6a6d73a340",
+                version: options.currentJobs
+                  ? "0.6.0-preview.1"
+                  : "0.1.0-preview.1",
+                sha256: options.currentJobs
+                  ? "fecda3d6f749730f83c240a5734498afad9bf68121e1c43d6c0a11d0371f946e"
+                  : "cd28333435a4fa68e528bf49334e3f2499d46ca615b0af395c4b9f6a6d73a340",
               },
             },
           },
@@ -291,6 +351,30 @@ function fakeAzure(
       };
     if (args[0] === "functionapp" && args[1] === "show")
       return { state: functionState };
+    if (
+      args[0] === "functionapp" &&
+      args[1] === "config" &&
+      args[2] === "appsettings" &&
+      args[3] === "list"
+    )
+      return functionDisabled
+        ? [
+            {
+              name: "AzureWebJobs.submitIngestronJob.Disabled",
+              value: "true",
+            },
+          ]
+        : [];
+    if (
+      args[0] === "functionapp" &&
+      args[1] === "config" &&
+      args[2] === "appsettings" &&
+      args[3] === "set"
+    ) {
+      const setting = args[args.indexOf("--settings") + 1];
+      functionDisabled = setting?.endsWith("=true") ?? false;
+      return {};
+    }
     if (args[0] === "functionapp" && args[1] === "stop") {
       functionState = "Stopped";
       return {};
@@ -395,7 +479,90 @@ test("azure init downloads the pinned Function package and defaults the worker d
     config.artifacts.jobsFunctionsPackage,
     "artifacts/ingestron-jobs-0.6.0-preview.1-fecda3d6f749.zip",
   );
-  assert.equal(config.bundle.version, "1.8.0");
+  assert.equal(config.bundle.version, "1.9.0");
+});
+
+test("adopt-init reconstructs safe intent and adoption issues an exact verified lock", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ingestron-adopt-"));
+  const path = join(directory, "ingestron.azure.yaml");
+  const downloads: Parameters<ArtifactDownloader>[] = [];
+  const downloader: ArtifactDownloader = async (...parameters) => {
+    downloads.push(parameters);
+  };
+  const azure = fakeAzure({
+    existing: true,
+    adoption: true,
+    currentJobs: true,
+    workerDigest: referenceGateImageDigest,
+  });
+  const initialised = await azureAdoptInit(
+    path,
+    {
+      name: "test",
+      subscriptionId: subscription,
+      resourceGroupName: groupName,
+      plannedUsd: 3,
+    },
+    azure.runner,
+    artifactVerifier,
+    downloader,
+  );
+  assert.equal(initialised.sourceDeployment, "legacy-runtime");
+  const config = parse(await readFile(path, "utf8"));
+  assert.equal(config.bundle.version, "1.9.0");
+  assert.equal(config.profile.resourceSuffix, "testj01");
+  assert.equal(config.identity.entraApplicationClientId, apiClient);
+  assert.equal(downloads.length, 1);
+  const plan = await azurePlanAdopt(path, azure.runner, artifactVerifier);
+  assert.equal(plan.resources.length, 7);
+  assert.equal(plan.recovery, false);
+  await assert.rejects(
+    () => azureAdopt(path, false, azure.runner, localRunner, artifactVerifier),
+    (error: unknown) =>
+      error instanceof CliError && error.code === "CONFIRMATION_REQUIRED",
+  );
+  const adopted = await azureAdopt(
+    path,
+    true,
+    azure.runner,
+    localRunner,
+    artifactVerifier,
+  );
+  assert.equal(adopted.action, "adopt");
+  assert.equal(adopted.verified, true);
+  const lock = parse(
+    await readFile(join(directory, "ingestron.azure.lock.yaml"), "utf8"),
+  );
+  assert.equal(lock.state, "installed");
+  assert.deepEqual(lock.ownedResources, adoptionResourceIds);
+});
+
+test("adoption rejects an inventory outside the bundle policy", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ingestron-adopt-drift-"));
+  const path = join(directory, "ingestron.azure.yaml");
+  const azure = fakeAzure({
+    existing: true,
+    adoption: true,
+    drift: true,
+    workerDigest: referenceGateImageDigest,
+  });
+  await azureAdoptInit(
+    path,
+    {
+      name: "test",
+      subscriptionId: subscription,
+      resourceGroupName: groupName,
+      plannedUsd: 3,
+    },
+    azure.runner,
+    artifactVerifier,
+    async () => undefined,
+  );
+  await assert.rejects(
+    () => azurePlanAdopt(path, azure.runner, artifactVerifier),
+    (error: unknown) =>
+      error instanceof CliError && error.code === "OWNERSHIP_COLLISION",
+  );
 });
 
 test("plan defers runtime what-if until the Bicep foundation exists", async () => {
@@ -635,6 +802,38 @@ test("plans, pauses and resumes only bundle-declared locked compute", async () =
   );
   const dropped = await azureDrop(path, true, azure.runner);
   assert.equal(dropped.action, "drop");
+});
+
+test("Flex lifecycle pauses intake through the exact Function trigger setting", async () => {
+  const path = await configuration("1.9.0");
+  const azure = fakeAzure({
+    workerDigest: referenceGateImageDigest,
+    currentJobs: true,
+  });
+  await azureInstall(path, true, azure.runner, localRunner, artifactVerifier);
+  const plan = await azurePlanLifecycle(
+    path,
+    "pause",
+    "cost-bearing",
+    azure.runner,
+  );
+  assert.equal(plan.operations[0]?.kind, "azure-function-trigger");
+  assert.equal(plan.operations[0]?.currentState, "Running");
+  await azurePause(path, "cost-bearing", true, azure.runner);
+  assert.ok(
+    azure.calls.some(
+      (call) =>
+        call[0] === "functionapp" &&
+        call[1] === "config" &&
+        call.includes("AzureWebJobs.submitIngestronJob.Disabled=true"),
+    ),
+  );
+  await azureResume(path, "cost-bearing", true, azure.runner);
+  assert.ok(
+    azure.calls.some((call) =>
+      call.includes("AzureWebJobs.submitIngestronJob.Disabled=false"),
+    ),
+  );
 });
 
 test("resume never adopts a Function App that the CLI did not pause", async () => {
