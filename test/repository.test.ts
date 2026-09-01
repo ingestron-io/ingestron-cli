@@ -177,6 +177,7 @@ test("Azure Profile J bundles retain Azure-owned provenance and file digests", a
     "1.6.0",
     "1.7.0",
     "1.8.0",
+    "1.9.0",
   ]) {
     const root = `bundles/azure/profile-j/${version}`;
     const manifest = JSON.parse(
@@ -192,7 +193,8 @@ test("Azure Profile J bundles retain Azure-owned provenance and file digests", a
         version.startsWith("1.5.") ||
         version.startsWith("1.6.") ||
         version.startsWith("1.7.") ||
-        version.startsWith("1.8.")
+        version.startsWith("1.8.") ||
+        version.startsWith("1.9.")
         ? "ingestron-io/ingestron-azure"
         : "intentlabs-dev/ingestron-azure",
     );
@@ -217,7 +219,7 @@ test("repository is public-source ready with release-only distribution", async (
   assert.equal(pkg.private, true);
   assert.ok(pkg.files.includes("dist"));
   assert.ok(pkg.files.includes("bundles"));
-  assert.equal(pkg.version, "0.3.10-preview.1");
+  assert.equal(pkg.version, "0.3.11-preview.1");
   assert.equal(pkg.license, "Apache-2.0");
   const release = await readFile(".github/workflows/release.yml", "utf8");
   assert.match(release, /gh release create/);
@@ -233,7 +235,7 @@ test("pnpm-style forwarded separator is accepted", () => {
   const envelope = JSON.parse(output);
   assert.equal(envelope.ok, true);
   assert.equal(envelope.command, "version");
-  assert.equal(envelope.result.version, "0.3.10-preview.1");
+  assert.equal(envelope.result.version, "0.3.11-preview.1");
 });
 
 test("help does not require command options", () => {
@@ -253,7 +255,10 @@ test("help does not require command options", () => {
   );
   const envelope = JSON.parse(output);
   assert.equal(envelope.ok, true);
-  assert.match(envelope.result.usage, /azure init\|plan/);
+  assert.match(
+    envelope.result.usage,
+    /azure init\|adopt-init\|plan-adopt\|adopt\|plan/,
+  );
   assert.match(envelope.result.usage, /https:\/\/docs\.ingestron\.io/);
 });
 
