@@ -15,7 +15,7 @@ Ingestron hosted control plane.
    references may be overridden for an approved internal mirror.
 3. Run `azure plan`. Review the exact subscription, group, Bicep change set,
    planned cost and deferred runtime stage.
-4. Run the organisation's live budget/policy preflight, then `azure install
+4. Run the organisation's live budget/policy preflight, then `azure create
 --yes`. The command repeats what-if, applies foundation Bicep, imports and
    verifies the worker digest, applies runtime Bicep, invokes the bundled
    Azure-owned One Deploy helper and writes an exact lock only after verification.
@@ -33,9 +33,13 @@ compatible with the CLI's alias-free safe YAML reader after upgrade and rollback
 ```text
 ingestron azure init --subscription <approved-subscription-id> ...
 ingestron azure plan --config ingestron.azure.yaml
-ingestron azure install --config ingestron.azure.yaml --yes
+ingestron azure create --config ingestron.azure.yaml --yes
 ingestron azure status --config ingestron.azure.yaml
 ingestron azure verify --config ingestron.azure.yaml
+ingestron azure plan-pause --config ingestron.azure.yaml --scope cost-bearing
+ingestron azure pause --config ingestron.azure.yaml --scope cost-bearing --yes
+ingestron azure plan-resume --config ingestron.azure.yaml --scope cost-bearing
+ingestron azure resume --config ingestron.azure.yaml --scope cost-bearing --yes
 ingestron azure adf-config --config ingestron.azure.yaml \
   --adf-config ingestron.adf.yaml \
   --factory-resource-id /subscriptions/.../factories/... \
@@ -65,7 +69,21 @@ ingestron azure upgrade --config ingestron.azure.yaml --to 1.2.1 --yes
 ingestron azure rollback --config ingestron.azure.yaml --yes
 ```
 
-New installations use `1.7.0`, which pins Jobs `0.6.0-preview.1` and adds the
+New installations use `1.8.0`, which retains the `1.7.0` runtime and adds a
+versioned lifecycle policy. `create` is the operator-friendly name for the
+existing full `install` path. `pause` stops only bundle-declared compute entry
+points, and `resume` starts only exact resource IDs recorded as stopped by the
+same ownership lock. Both mutations require `--yes`; their `plan-*` commands
+show current and desired state first.
+
+`--scope cost-bearing` is the default and currently selects the Jobs Function
+App. `--scope all` selects every resource the bundle declares pausable. Neither
+scope deletes retained state. Storage, registry, network and monitoring usage
+can still incur charges, so pause never claims a zero-cost result. A partial
+drop is deliberately unsupported because it could destroy retained data or
+leave an unreconcilable Bicep deployment.
+
+Bundle `1.7.0` pins Jobs `0.6.0-preview.1` and adds the
 customer-managed `dataset.reference-integrity-gate` outcome without adding Azure
 resources. It checks deliberately submitted key controls for duplicate entities
 and orphan references, then writes a value-free publish or review package. It
@@ -80,14 +98,18 @@ customer-controlled Entra application and never deletes it.
 
 ```text
 ingestron azure plan-uninstall --config ingestron.azure.yaml
-ingestron azure uninstall --config ingestron.azure.yaml --yes
+ingestron azure drop --config ingestron.azure.yaml --yes
 ```
+
+`drop` is the lifecycle name for exact `uninstall`. It deletes only the complete
+Bicep-owned resource group after inventory reconciliation. The original
+`install` and `uninstall` command names remain compatible aliases.
 
 ## Configuration split
 
 - `ingestron.azure.yaml` contains the runtime installation intent.
-- `ingestron.azure.lock.yaml` records runtime release, integration outputs and
-  exact Azure ownership.
+- `ingestron.azure.lock.yaml` records runtime release, integration outputs,
+  exact Azure ownership and the resource IDs paused by the CLI.
 - `ingestron.adf.yaml` and `ingestron.lock.yaml` remain the independently managed
   ADF integration intent and lock.
 

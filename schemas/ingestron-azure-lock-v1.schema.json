@@ -35,6 +35,20 @@
       "items": { "type": "string", "pattern": "^/subscriptions/" }
     },
     "directoryObjects": { "type": "array", "maxItems": 0 },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "scope", "pausedResources"],
+      "properties": {
+        "status": { "enum": ["running", "paused"] },
+        "scope": { "enum": ["cost-bearing", "all"] },
+        "pausedResources": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^/subscriptions/" }
+        }
+      }
+    },
     "history": { "type": "array", "maxItems": 2 }
   }
 }

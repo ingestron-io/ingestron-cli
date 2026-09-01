@@ -86,8 +86,65 @@ type AzureManifest = {
     replacementAllowed: false;
     ownedResourceGroup: true;
   };
+  lifecyclePolicy?: AzureLifecyclePolicy;
   files: Record<string, { sha256: string; size: number }>;
 };
+
+export type AzureLifecycleScope = "cost-bearing" | "all";
+
+type AzureLifecycleTarget = {
+  kind: "azure-function-app";
+  resourceType: "Microsoft.Web/sites";
+  nameTemplate: string;
+  pauseVerb: "stop";
+  resumeVerb: "start";
+  costClass: string;
+};
+
+type AzureLifecyclePolicy = {
+  contract: "ingestron.azure-lifecycle/v1";
+  defaultScope: AzureLifecycleScope;
+  scopes: Record<AzureLifecycleScope, string[]>;
+  targets: Record<string, AzureLifecycleTarget>;
+  residualCostClasses: string[];
+  dropScope: "owned-resource-group-only";
+};
+
+function isLifecyclePolicy(value: unknown): value is AzureLifecyclePolicy {
+  if (
+    !isRecord(value) ||
+    value.contract !== "ingestron.azure-lifecycle/v1" ||
+    !["cost-bearing", "all"].includes(String(value.defaultScope)) ||
+    value.dropScope !== "owned-resource-group-only" ||
+    !isRecord(value.scopes) ||
+    !isRecord(value.targets) ||
+    !Array.isArray(value.scopes["cost-bearing"]) ||
+    !Array.isArray(value.scopes.all) ||
+    !Array.isArray(value.residualCostClasses)
+  )
+    return false;
+  const targetNames = Object.keys(value.targets);
+  return (
+    [...value.scopes["cost-bearing"], ...value.scopes.all].every(
+      (target) => typeof target === "string" && targetNames.includes(target),
+    ) &&
+    Object.values(value.targets).every(
+      (target) =>
+        isRecord(target) &&
+        target.kind === "azure-function-app" &&
+        target.resourceType === "Microsoft.Web/sites" &&
+        target.pauseVerb === "stop" &&
+        target.resumeVerb === "start" &&
+        typeof target.nameTemplate === "string" &&
+        /^[a-z0-9-]*\{resourceSuffix\}[a-z0-9-]*$/.test(target.nameTemplate) &&
+        typeof target.costClass === "string" &&
+        /^[a-z0-9-]+$/.test(target.costClass),
+    ) &&
+    value.residualCostClasses.every(
+      (entry) => typeof entry === "string" && /^[a-z0-9-]+$/.test(entry),
+    )
+  );
+}
 
 type AzureLock = {
   apiVersion: "ingestron.azure-lock/v1";
@@ -101,6 +158,11 @@ type AzureLock = {
   ownedResourceGroupId: string;
   ownedResources: string[];
   directoryObjects: string[];
+  lifecycle?: {
+    status: "running" | "paused";
+    scope: AzureLifecycleScope;
+    pausedResources: string[];
+  };
   history: Array<{
     bundle: AzureConfig["bundle"];
     integration?: Record<string, string>;
@@ -234,7 +296,9 @@ async function loadBundle(version: string, pinnedDigest?: string) {
     ) ||
     manifest.changePolicy.deletionAllowed !== false ||
     manifest.changePolicy.replacementAllowed !== false ||
-    manifest.changePolicy.ownedResourceGroup !== true
+    manifest.changePolicy.ownedResourceGroup !== true ||
+    (manifest.lifecyclePolicy !== undefined &&
+      !isLifecyclePolicy(manifest.lifecyclePolicy))
   )
     throw new CliError("BUNDLE_INVALID", "Azure bundle is incompatible");
   const manifestDigest = `sha256:${sha256(manifestBytes)}`;
@@ -800,7 +864,7 @@ export async function azureInit(
       4,
     );
   }
-  const version = options.bundleVersion ?? "1.7.0";
+  const version = options.bundleVersion ?? "1.8.0";
   const bundle = await loadBundle(version);
   if (!/^[a-z][a-z0-9-]{0,62}$/.test(options.name ?? "ingestron"))
     throw new CliError("CONFIG_INVALID", "--name must be a safe identifier");
@@ -1031,6 +1095,7 @@ async function readLock(configPath: string): Promise<AzureLock> {
     "ownedResourceGroupId",
     "ownedResources",
     "directoryObjects",
+    "lifecycle",
     "history",
   ]);
   if (
@@ -1053,6 +1118,16 @@ async function readLock(configPath: string): Promise<AzureLock> {
           .startsWith(`${lock.ownedResourceGroupId.toLowerCase()}/providers/`),
     ) ||
     lock.directoryObjects.length !== 0 ||
+    (lock.lifecycle !== undefined &&
+      lock.lifecycle.status !== "running" &&
+      lock.lifecycle.status !== "paused") ||
+    (lock.lifecycle !== undefined &&
+      !["cost-bearing", "all"].includes(lock.lifecycle.scope)) ||
+    (lock.lifecycle !== undefined &&
+      (!Array.isArray(lock.lifecycle.pausedResources) ||
+        !lock.lifecycle.pausedResources.every((id) =>
+          lock.ownedResources.includes(id),
+        ))) ||
     lock.history.length > 2
   )
     throw new CliError(
@@ -1263,6 +1338,23 @@ export async function azureInstall(
   );
 }
 
+export async function azureCreate(
+  configPath: string,
+  yes: boolean,
+  runner: CommandRunner = azRunner,
+  localRunner: LocalRunner = defaultLocalRunner,
+  artifactVerifier: ArtifactVerifier = verifyArtifacts,
+) {
+  const result = await azureInstall(
+    configPath,
+    yes,
+    runner,
+    localRunner,
+    artifactVerifier,
+  );
+  return { ...result, action: "create" };
+}
+
 export async function azureStatus(
   configPath: string,
   runner: CommandRunner = azRunner,
@@ -1319,7 +1411,217 @@ export async function azureStatus(
     unexpectedResources,
     integration: lock.integration,
     bundle: lock.bundle,
+    lifecycle: lock.lifecycle ?? {
+      status: "running",
+      scope: "cost-bearing",
+      pausedResources: [],
+    },
   };
+}
+
+function requireLifecyclePolicy(manifest: AzureManifest) {
+  const policy = manifest.lifecyclePolicy;
+  if (!policy)
+    throw new CliError(
+      "LIFECYCLE_UNSUPPORTED",
+      `Azure bundle ${manifest.bundleVersion} does not declare pause and resume semantics`,
+      2,
+    );
+  if (!isLifecyclePolicy(policy))
+    throw new CliError(
+      "BUNDLE_INVALID",
+      "Azure bundle lifecycle policy is invalid",
+      5,
+    );
+  return policy;
+}
+
+async function functionAppState(
+  config: AzureConfig,
+  name: string,
+  runner: CommandRunner,
+) {
+  const value = await runner([
+    "functionapp",
+    "show",
+    "--subscription",
+    config.target.subscriptionId,
+    "--resource-group",
+    config.target.resourceGroupName,
+    "--name",
+    name,
+    "--output",
+    "json",
+  ]);
+  if (!isRecord(value) || !["Running", "Stopped"].includes(String(value.state)))
+    throw new CliError(
+      "AZ_OUTPUT_INVALID",
+      `Azure returned no supported state for Function App ${name}`,
+      4,
+    );
+  return String(value.state) as "Running" | "Stopped";
+}
+
+export async function azurePlanLifecycle(
+  configPath: string,
+  lifecycleAction: "pause" | "resume",
+  scope: AzureLifecycleScope = "cost-bearing",
+  runner: CommandRunner = azRunner,
+) {
+  if (!["cost-bearing", "all"].includes(scope))
+    throw new CliError("USAGE", "--scope must be cost-bearing or all", 2);
+  const config = await readAzureConfig(configPath);
+  const status = await azureStatus(configPath, runner);
+  if (!status.installed)
+    throw new CliError(
+      "RESOURCE_DRIFT",
+      "An exact installed Azure inventory is required for lifecycle changes",
+      5,
+    );
+  const lock = await readLock(configPath);
+  const bundle = await loadBundle(config.bundle.version, config.bundle.digest);
+  const policy = requireLifecyclePolicy(bundle.manifest);
+  const recordedPaused = new Set(lock.lifecycle?.pausedResources ?? []);
+  const operations = [];
+  for (const targetKey of policy.scopes[scope]) {
+    const target = policy.targets[targetKey]!;
+    const name = target.nameTemplate.replace(
+      "{resourceSuffix}",
+      config.profile.resourceSuffix,
+    );
+    const resourceId = `${resourceGroupId(config)}/providers/${target.resourceType}/${name}`;
+    const lockedResourceId = lock.ownedResources.find(
+      (id) => id.toLowerCase() === resourceId.toLowerCase(),
+    );
+    if (!lockedResourceId)
+      throw new CliError(
+        "OWNERSHIP_COLLISION",
+        `Lifecycle target is absent from the exact ownership lock: ${resourceId}`,
+        5,
+      );
+    if (lifecycleAction === "resume" && !recordedPaused.has(lockedResourceId))
+      continue;
+    const state = await functionAppState(config, name, runner);
+    const desiredState = lifecycleAction === "pause" ? "Stopped" : "Running";
+    operations.push({
+      target: targetKey,
+      kind: target.kind,
+      resourceId: lockedResourceId,
+      resourceName: name,
+      costClass: target.costClass,
+      currentState: state,
+      desiredState,
+      changeRequired: state !== desiredState,
+    });
+  }
+  return {
+    action: `plan-${lifecycleAction}`,
+    scope,
+    operations,
+    residualCostClasses: policy.residualCostClasses,
+    zeroCostGuaranteed: false,
+    note:
+      lifecycleAction === "pause"
+        ? "Pause stops declared compute entry points; retained Azure services can continue to incur charges."
+        : "Resume starts only resources previously paused by this ownership lock.",
+  };
+}
+
+async function applyLifecycle(
+  configPath: string,
+  lifecycleAction: "pause" | "resume",
+  scope: AzureLifecycleScope,
+  yes: boolean,
+  runner: CommandRunner,
+) {
+  if (!yes)
+    throw new CliError(
+      "CONFIRMATION_REQUIRED",
+      `Azure ${lifecycleAction} requires --yes after reviewing the lifecycle plan`,
+      3,
+    );
+  const config = await readAzureConfig(configPath);
+  const lock = await readLock(configPath);
+  const plan = await azurePlanLifecycle(
+    configPath,
+    lifecycleAction,
+    scope,
+    runner,
+  );
+  for (const operation of plan.operations) {
+    if (!operation.changeRequired) continue;
+    await runner([
+      "functionapp",
+      lifecycleAction === "pause" ? "stop" : "start",
+      "--subscription",
+      config.target.subscriptionId,
+      "--resource-group",
+      config.target.resourceGroupName,
+      "--name",
+      operation.resourceName,
+      "--output",
+      "json",
+    ]);
+    const state = await functionAppState(
+      config,
+      operation.resourceName,
+      runner,
+    );
+    if (state !== operation.desiredState)
+      throw new CliError(
+        "LIFECYCLE_INCOMPLETE",
+        `Azure did not reach ${operation.desiredState} for ${operation.resourceName}`,
+        5,
+      );
+  }
+  const previousPaused = new Set(lock.lifecycle?.pausedResources ?? []);
+  if (lifecycleAction === "pause") {
+    for (const operation of plan.operations) {
+      if (operation.changeRequired) previousPaused.add(operation.resourceId);
+    }
+  } else {
+    for (const operation of plan.operations)
+      previousPaused.delete(operation.resourceId);
+  }
+  const pausedResources = [...previousPaused].sort((left, right) =>
+    left.localeCompare(right),
+  );
+  await writeLock(lockPathFor(configPath), {
+    ...lock,
+    lifecycle: {
+      status: pausedResources.length ? "paused" : "running",
+      scope,
+      pausedResources,
+    },
+  });
+  return {
+    action: lifecycleAction,
+    scope,
+    changedResources: plan.operations
+      .filter((operation) => operation.changeRequired)
+      .map((operation) => operation.resourceId),
+    pausedResources,
+    residualCostClasses: plan.residualCostClasses,
+    zeroCostGuaranteed: false,
+  };
+}
+
+export async function azurePause(
+  configPath: string,
+  scope: AzureLifecycleScope,
+  yes: boolean,
+  runner: CommandRunner = azRunner,
+) {
+  return applyLifecycle(configPath, "pause", scope, yes, runner);
+}
+
+export async function azureResume(
+  configPath: string,
+  scope: AzureLifecycleScope,
+  yes: boolean,
+  runner: CommandRunner = azRunner,
+) {
+  return applyLifecycle(configPath, "resume", scope, yes, runner);
 }
 
 export async function azureVerify(
@@ -1693,4 +1995,13 @@ export async function azureUninstall(
     deletedDirectoryObjects: [],
     orphanAudit: { resourceGroupExists: false, passed: true },
   };
+}
+
+export async function azureDrop(
+  configPath: string,
+  yes: boolean,
+  runner: CommandRunner = azRunner,
+) {
+  const result = await azureUninstall(configPath, yes, runner);
+  return { ...result, action: "drop" };
 }

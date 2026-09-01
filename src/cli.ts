@@ -36,15 +36,21 @@ import {
 } from "./project.js";
 import {
   azureAdfConfig,
+  azureCreate,
+  azureDrop,
   azureInit,
   azureInstall,
+  azurePause,
   azurePlan,
+  azurePlanLifecycle,
   azurePlanUninstall,
+  azureResume,
   azureRollback,
   azureStatus,
   azureUninstall,
   azureUpgrade,
   azureVerify,
+  type AzureLifecycleScope,
 } from "./azure.js";
 
 const forwardedArgs = process.argv.slice(2);
@@ -73,7 +79,7 @@ const filtered = args.filter(
 );
 const command = filtered.slice(0, 2).join(" ") || "help";
 const docsUrl = "https://docs.ingestron.io/docs/deployment/cli-reference";
-const usage = `Commands: version; recipe validate; contract check; package verify; project validate|resolve; gen plan|build|verify; deploy plan; product import|requirements|resolve|plan|diff|approve|export-odcs|generate|verify; adf init|migrate|plan|install|status|verify|upgrade|rollback|plan-uninstall|uninstall; adf connection discover|add|plan|test; adf inventory export; azure init|plan|install|status|verify|upgrade|rollback|adf-config|plan-uninstall|uninstall. Profiles: ${adfProfiles.join(", ")}. Docs: ${docsUrl}`;
+const usage = `Commands: version; recipe validate; contract check; package verify; project validate|resolve; gen plan|build|verify; deploy plan; product import|requirements|resolve|plan|diff|approve|export-odcs|generate|verify; adf init|migrate|plan|install|status|verify|upgrade|rollback|plan-uninstall|uninstall; adf connection discover|add|plan|test; adf inventory export; azure init|plan|install|create|status|verify|plan-pause|pause|plan-resume|resume|upgrade|rollback|adf-config|plan-uninstall|uninstall|drop. Profiles: ${adfProfiles.join(", ")}. Docs: ${docsUrl}`;
 const azureInitUsage =
   "ingestron azure init --subscription <subscription-id> --resource-group <name> --location <region> --resource-suffix <suffix> --deployment-mode <temporary-proof|persistent-demo> --ingress-mode <disabled|entra-public> --entra-application-client-id <id> --allowed-client-application-id <id> --pipeline-caller-principal-id <id> --planned-usd <amount> [--config <path>] [--name <name>] [--expires-on <date>]. Docs: " +
   docsUrl;
@@ -123,6 +129,15 @@ const requiredPath = (index: number, label: string) => {
   const value = filtered[index];
   if (!value) throw new CliError("USAGE", `${label} is required`, 2);
   return value;
+};
+const requireCompleteAzureScope = () => {
+  const scope = option("--scope");
+  if (scope && scope !== "all")
+    throw new CliError(
+      "PARTIAL_LIFECYCLE_UNSUPPORTED",
+      "Azure create and drop support only --scope all; use pause for cost-bearing compute",
+      2,
+    );
 };
 const declaredInputs = (): Record<string, string> => {
   const values: Record<string, string> = {};
@@ -407,15 +422,28 @@ async function run(): Promise<unknown> {
     const config = option("--config");
     if (!config) throw new CliError("USAGE", "--config is required");
     const yes = filtered.includes("--yes");
+    const lifecycleScope = (option("--scope") ??
+      "cost-bearing") as AzureLifecycleScope;
     switch (filtered[1]) {
       case "plan":
         return azurePlan(config);
       case "install":
         return azureInstall(config, yes);
+      case "create":
+        requireCompleteAzureScope();
+        return azureCreate(config, yes);
       case "status":
         return azureStatus(config);
       case "verify":
         return azureVerify(config);
+      case "plan-pause":
+        return azurePlanLifecycle(config, "pause", lifecycleScope);
+      case "pause":
+        return azurePause(config, lifecycleScope, yes);
+      case "plan-resume":
+        return azurePlanLifecycle(config, "resume", lifecycleScope);
+      case "resume":
+        return azureResume(config, lifecycleScope, yes);
       case "upgrade":
         return azureUpgrade(config, requiredOption("--to"), yes);
       case "rollback":
@@ -432,6 +460,9 @@ async function run(): Promise<unknown> {
         return azurePlanUninstall(config);
       case "uninstall":
         return azureUninstall(config, yes);
+      case "drop":
+        requireCompleteAzureScope();
+        return azureDrop(config, yes);
     }
   }
   throw new CliError("USAGE", usage);

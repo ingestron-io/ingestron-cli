@@ -69,7 +69,7 @@ ingestron gen plan|build <contract-base> --environment <id> --generator <id>
 ingestron gen verify <generated-directory>
 ingestron deploy plan <contract-base> --environment <id> --generator <id>
 ingestron adf init|plan|install|status|verify|upgrade|rollback|plan-uninstall|uninstall
-ingestron azure init|plan|install|status|verify|upgrade|rollback|adf-config|plan-uninstall|uninstall
+ingestron azure init|plan|install|create|status|verify|plan-pause|pause|plan-resume|resume|upgrade|rollback|adf-config|plan-uninstall|uninstall|drop
 ```
 
 The private PB-056 contract-base workflow uses one Git-ready directory containing
