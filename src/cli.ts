@@ -2,6 +2,7 @@
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { compilerProtocol } from "./compiler-protocol.js";
 import {
   adfInit,
   adfInstall,
@@ -177,7 +178,10 @@ async function run(): Promise<unknown> {
       dirname(fileURLToPath(import.meta.url)),
       "../package.json",
     );
-    return { version: JSON.parse(await readFile(packagePath, "utf8")).version };
+    return {
+      version: JSON.parse(await readFile(packagePath, "utf8")).version,
+      compiler: compilerProtocol,
+    };
   }
   if (filtered[0] === "recipe" && filtered[1] === "validate")
     return validateRecipe(requiredPath(2, "recipe path"));
@@ -208,7 +212,7 @@ async function run(): Promise<unknown> {
     if (filtered[1] === "resolve") return resolution;
     if (filtered[1] === "validate")
       return {
-        contract: "ingestron.project-validation/v1",
+        contract: compilerProtocol.commandResults["project validate"],
         valid: !resolution.findings.some(
           (finding) => finding.severity === "error",
         ),

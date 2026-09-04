@@ -20,6 +20,7 @@ import {
 import YAML from "yaml";
 import { CliError } from "./errors.js";
 import { renderTemplateValue } from "./template.js";
+import { compilerProtocol } from "./compiler-protocol.js";
 
 const MAX_FILES = 10_000;
 const MAX_FILE_BYTES = 1_048_576;
@@ -50,7 +51,7 @@ type ProjectManifest = Record<string, unknown> & {
 };
 
 export type ProjectResolution = {
-  contract: "ingestron.contract-base-resolution/v1";
+  contract: (typeof compilerProtocol.commandResults)["project resolve"];
   basePath: string;
   project: { id: string; name: string };
   environment: string;
@@ -75,7 +76,7 @@ export type ProjectResolution = {
 };
 
 export type GenerationPlan = {
-  contract: "ingestron.generation-plan/v1";
+  contract: (typeof compilerProtocol.commandResults)["gen plan"];
   resolutionDigest: string;
   environment: string;
   generator: {
@@ -574,7 +575,7 @@ export async function resolveProject(
     sourceFiles,
   };
   return {
-    contract: "ingestron.contract-base-resolution/v1",
+    contract: compilerProtocol.commandResults["project resolve"],
     basePath: root,
     project: { id: projectId, name: projectName },
     environment: environmentId,
@@ -721,7 +722,7 @@ export async function planGeneration(
     digest: digest(canonical(config)),
   };
   const body = {
-    contract: "ingestron.generation-plan/v1" as const,
+    contract: compilerProtocol.commandResults["gen plan"],
     resolutionDigest: project.digest,
     environment,
     generator,
@@ -1417,7 +1418,7 @@ export async function buildGeneration(
     ),
   );
   const manifest = {
-    contract: "ingestron.generated-project/v1",
+    contract: compilerProtocol.commandResults["gen build"],
     target: plan.generator.implementation,
     environment,
     project: project.project,
@@ -1502,7 +1503,7 @@ export async function verifyGeneration(
       );
   }
   return {
-    contract: "ingestron.generated-project-verification/v1",
+    contract: compilerProtocol.commandResults["gen verify"],
     valid: true,
     planDigest: lock.value.planDigest,
     files,
@@ -1547,7 +1548,7 @@ export async function deploymentPlan(
     );
   const targetBinding = { platform: generatorId, ...configuredTarget };
   return {
-    contract: "ingestron.deployment-handoff/v1",
+    contract: compilerProtocol.commandResults["deploy plan"],
     mutatesTarget: false,
     requiredExecution: "customer-terminal-or-ci",
     project: project.project,

@@ -236,6 +236,14 @@ test("pnpm-style forwarded separator is accepted", () => {
   assert.equal(envelope.ok, true);
   assert.equal(envelope.command, "version");
   assert.equal(envelope.result.version, "0.3.11-preview.1");
+  assert.equal(
+    envelope.result.compiler.contract,
+    "ingestron.compiler-protocol/v1",
+  );
+  assert.equal(
+    envelope.result.compiler.commandResults["gen build"],
+    "ingestron.generated-project/v1",
+  );
 });
 
 test("help does not require command options", () => {
