@@ -182,7 +182,7 @@ its message and re-preview changed source rather than blindly retrying a stale
 digest. The browser journey has been exercised on a disposable synthetic base,
 not against a live customer deployment.
 
-Databricks generator `version: 1.1.0` or `1.2.0` requires an approved
+Databricks generator `version: 1.1.0`, `1.2.0` or `1.3.0` requires an approved
 transformation on each selected output contract. Referenced input contracts
 remain separate metadata objects. Version 1.0.0 retains its legacy generation
 behaviour.
@@ -200,6 +200,19 @@ history version and the successful silver/gold row-count check. Runner validates
 that result against the exact job run, but does not yet independently attest the
 deployed notebook bytes or query/pin the Delta version. Do not select 1.2.0 as an
 end-to-end incremental profile yet.
+
+Version 1.3.0 retains the same producer bindings and adds a fifth
+`verify_publication` task. `reconcile` writes the concrete history version and
+gold count as bounded Databricks task values. The final task receives those values
+through Databricks dynamic references, reads the table with Spark's `versionAsOf`
+option, compares the pinned rows with the reviewed transformation result and only
+then returns the publication contract. The synthetic native-evidence fixture now
+selects this version. This prevents the generated consumer check from silently
+moving to a later table version; it does not establish long-term retention of
+that version or independently attest execution outside the job. Databricks'
+[Delta table tutorial](https://docs.databricks.com/aws/en/delta/tutorial) and
+[task-values guide](https://docs.databricks.com/aws/en/jobs/task-values) document
+the two native mechanisms (checked 2026-09-05).
 
 - `review.requirements` contains references to reviewed evidence. These strings
   are required but are not independently resolved or authenticated by the compiler.

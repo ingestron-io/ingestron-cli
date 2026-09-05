@@ -180,6 +180,52 @@ test("Databricks 1.1 generation retains transformation and uses value-aware reco
     evidenceNotebook,
     /ingestron\.databricks-publication-result\/v1/,
   );
+  generator.version = "1.3.0";
+  standard.compatibility.generators.databricks.versions.push("1.3.0");
+  await writeFile(generatorPath, YAML.stringify(generator));
+  await writeFile(standardPath, YAML.stringify(standard));
+  const pinnedOutput = join(root, "pinned-output");
+  await buildGeneration(base, "dev", "databricks", pinnedOutput);
+  assert.equal((await verifyGeneration(pinnedOutput)).valid, true);
+  const pinnedResource = YAML.parse(
+    await readFile(join(pinnedOutput, "resources/orders.job.yml"), "utf8"),
+  ).resources.jobs.pl_fin_dev_orders;
+  assert.equal(pinnedResource.tasks.length, 5);
+  assert.deepEqual(pinnedResource.tasks[4], {
+    task_key: "verify_publication",
+    depends_on: [{ task_key: "reconcile" }],
+    notebook_task: {
+      notebook_path: "../src/orders.py",
+      base_parameters: {
+        asset_id: "orders",
+        plan_digest: "{{job.parameters.plan_digest}}",
+        owner_digest: "{{job.parameters.owner_digest}}",
+        reservation_digest: "{{job.parameters.reservation_digest}}",
+        storage_binding_digest: "{{job.parameters.storage_binding_digest}}",
+        handoff_contract: "ingestron.medallion-handoff/v1",
+        bronze_path: "/synthetic/bronze/snapshot_001/fin_dev_orders",
+        silver_table: "demo.customer360.fin_dev_orders_silver",
+        gold_table: "demo.customer360.fin_dev_orders_gold",
+        snapshot_id: "snapshot_001",
+        stage: "verify_publication",
+        published_version: "{{tasks.reconcile.values.delta_version}}",
+        expected_count: "{{tasks.reconcile.values.gold_count}}",
+        source_digest: "{{job.parameters.source_digest}}",
+      },
+    },
+    job_cluster_key: "__BIND_JOB_CLUSTER__",
+  });
+  const pinnedNotebook = await readFile(
+    join(pinnedOutput, "src/orders.py"),
+    "utf8",
+  );
+  assert.match(pinnedNotebook, /taskValues\.set\(key="delta_version"/);
+  assert.match(pinnedNotebook, /option\("versionAsOf", int\(version\)\)/);
+  assert.match(pinnedNotebook, /pinned gold publication/);
+  assert.equal(
+    pinnedResource.tags.source_digest,
+    `sha256:${createHash("sha256").update(pinnedNotebook).digest("hex")}`,
+  );
   order.transformation.review.status = "pending";
   await writeFile(orderPath, YAML.stringify(order));
   await assert.rejects(

@@ -873,14 +873,14 @@ export async function planGeneration(
         "TRANSFORMATION_UNSUPPORTED",
         "Typed transformations are implemented for Databricks only; ADF is the landing bridge",
       );
-    if (transformation && !["1.1.0", "1.2.0"].includes(version))
+    if (transformation && !["1.1.0", "1.2.0", "1.3.0"].includes(version))
       throw new CliError(
         "TRANSFORMATION_UNSUPPORTED",
-        "Typed transformations require Databricks generator 1.1.0 or 1.2.0",
+        "Typed transformations require Databricks generator 1.1.0, 1.2.0 or 1.3.0",
       );
     if (
       implementation === "databricks" &&
-      ["1.1.0", "1.2.0"].includes(version) &&
+      ["1.1.0", "1.2.0", "1.3.0"].includes(version) &&
       !transformation
     )
       throw new CliError(
@@ -1507,7 +1507,10 @@ async function renderGeneration(
       const expectedColumns = fields.flatMap((field) =>
         isRecord(field) && typeof field.name === "string" ? [field.name] : [],
       );
-      const nativeEvidence = plan.generator.version === "1.2.0";
+      const nativeEvidence = ["1.2.0", "1.3.0"].includes(
+        plan.generator.version,
+      );
+      const pinnedConsumer = plan.generator.version === "1.3.0";
       const ownerDigest = digest(
         JSON.stringify([project.project.id, plan.environment, id]),
       );
@@ -1619,6 +1622,26 @@ async function renderGeneration(
                   },
                   job_cluster_key: "__BIND_JOB_CLUSTER__",
                 },
+                ...(pinnedConsumer
+                  ? [
+                      {
+                        task_key: "verify_publication",
+                        depends_on: [{ task_key: "reconcile" }],
+                        notebook_task: {
+                          notebook_path: `../src/${id}.py`,
+                          base_parameters: {
+                            ...taskParameters,
+                            stage: "verify_publication",
+                            published_version:
+                              "{{tasks.reconcile.values.delta_version}}",
+                            expected_count:
+                              "{{tasks.reconcile.values.gold_count}}",
+                          },
+                        },
+                        job_cluster_key: "__BIND_JOB_CLUSTER__",
+                      },
+                    ]
+                  : []),
               ],
               job_clusters: [
                 {
@@ -1659,6 +1682,7 @@ async function renderGeneration(
             project.project.id,
             id,
             nativeEvidence,
+            pinnedConsumer,
           ),
         );
         await writeJson(

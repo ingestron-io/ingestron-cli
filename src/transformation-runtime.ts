@@ -76,6 +76,7 @@ export function transformationNotebook(
   projectId: string,
   contractId: string,
   nativeEvidence = false,
+  pinnedConsumer = false,
 ) {
   const literal = (value: unknown) =>
     `json.loads(${JSON.stringify(JSON.stringify(value))})`;
@@ -87,7 +88,7 @@ spec = ${literal(plan)}
 source_paths = ${literal(sources)}
 project_id = ${literal(projectId)}
 contract_id = ${literal(contractId)}
-for key in ("stage", "silver_table", "gold_table", "plan_digest", "snapshot_id"${nativeEvidence ? ', "owner_digest", "reservation_digest", "storage_binding_digest", "source_digest"' : ""}):
+for key in ("stage", "silver_table", "gold_table", "plan_digest", "snapshot_id"${nativeEvidence ? ', "owner_digest", "reservation_digest", "storage_binding_digest", "source_digest"' : ""}${pinnedConsumer ? ', "published_version", "expected_count"' : ""}):
     dbutils.widgets.text(key, "")
 stage = dbutils.widgets.get("stage")
 silver_table = dbutils.widgets.get("silver_table")
@@ -134,6 +135,21 @@ elif stage == "reconcile":
     assert_equivalent(silver, spark.table(silver_table), "silver")
     assert_equivalent(gold, spark.table(gold_table), "gold")
     counts = {"silver": silver.count(), "gold": gold.count()}
+${
+  pinnedConsumer
+    ? `elif stage == "verify_publication":
+    version = dbutils.widgets.get("published_version")
+    expected_count = dbutils.widgets.get("expected_count")
+    if not re.fullmatch(r"0|[1-9][0-9]{0,18}", version) or not re.fullmatch(r"0|[1-9][0-9]{0,18}", expected_count):
+        raise ValueError("Pinned Delta version and expected count are required")
+    pinned = spark.read.option("versionAsOf", int(version)).table(gold_table)
+    assert_equivalent(gold, pinned, "pinned gold publication")
+    counts = {"expected": int(expected_count), "actual": pinned.count()}
+    if counts["expected"] != counts["actual"]:
+        raise RuntimeError("Pinned publication row count does not reconcile")
+`
+    : ""
+}
 else:
     raise ValueError("Unsupported stage")
 ${
@@ -142,8 +158,16 @@ ${
     history = spark.sql("DESCRIBE HISTORY " + gold_table + " LIMIT 1").collect()
     if len(history) != 1 or history[0]["version"] is None:
         raise ValueError("Delta publication version is unavailable")
-    result = {"contract": "ingestron.databricks-publication-result/v1", "planDigest": dbutils.widgets.get("plan_digest"), "ownerDigest": dbutils.widgets.get("owner_digest"), "reservationDigest": dbutils.widgets.get("reservation_digest"), "storageBindingDigest": dbutils.widgets.get("storage_binding_digest"), "sourceDigest": dbutils.widgets.get("source_digest"), "table": gold_table, "deltaVersion": str(history[0]["version"]), "checks": [{"id": "silver-gold-row-count", "expected": counts["silver"], "actual": counts["gold"]}]}
-    dbutils.notebook.exit(json.dumps(result, separators=(",", ":")))
+${
+  pinnedConsumer
+    ? `    dbutils.jobs.taskValues.set(key="delta_version", value=str(history[0]["version"]))
+    dbutils.jobs.taskValues.set(key="gold_count", value=counts["gold"])
+elif stage == "verify_publication":
+    result = {"contract": "ingestron.databricks-publication-result/v1", "planDigest": dbutils.widgets.get("plan_digest"), "ownerDigest": dbutils.widgets.get("owner_digest"), "reservationDigest": dbutils.widgets.get("reservation_digest"), "storageBindingDigest": dbutils.widgets.get("storage_binding_digest"), "sourceDigest": dbutils.widgets.get("source_digest"), "table": gold_table, "deltaVersion": dbutils.widgets.get("published_version"), "checks": [{"id": "silver-gold-row-count", "expected": counts["expected"], "actual": counts["actual"]}]}
+    dbutils.notebook.exit(json.dumps(result, separators=(",", ":")))`
+    : `    result = {"contract": "ingestron.databricks-publication-result/v1", "planDigest": dbutils.widgets.get("plan_digest"), "ownerDigest": dbutils.widgets.get("owner_digest"), "reservationDigest": dbutils.widgets.get("reservation_digest"), "storageBindingDigest": dbutils.widgets.get("storage_binding_digest"), "sourceDigest": dbutils.widgets.get("source_digest"), "table": gold_table, "deltaVersion": str(history[0]["version"]), "checks": [{"id": "silver-gold-row-count", "expected": counts["silver"], "actual": counts["gold"]}]}
+    dbutils.notebook.exit(json.dumps(result, separators=(",", ":")))`
+}
 else:
     print(json.dumps({"event": "ingestron.transformation.completed", "stage": stage, "contractId": contract_id, "transformationDigest": spec["digest"], "planDigest": dbutils.widgets.get("plan_digest"), "snapshotId": dbutils.widgets.get("snapshot_id"), "counts": counts, "at": datetime.now(timezone.utc).isoformat()}))
 `

@@ -31,8 +31,9 @@ export async function createPhaseOneBase(
   );
   await write("contracts/orders.yaml", order);
   const generator = await read("generators/databricks.yaml");
-  generator.version = nativeEvidence ? "1.2.0" : "1.1.0";
+  generator.version = nativeEvidence ? "1.3.0" : "1.1.0";
   generator.contracts = ["orders"];
+  if (nativeEvidence) generator.output.workflow.push("verify_publication");
   Object.assign(generator.target, {
     catalog: "synthetic",
     schema: "customer360",
@@ -61,7 +62,7 @@ export async function createPhaseOneBase(
   standard.compatibility.generators.databricks.versions = [
     "1.0.0",
     "1.1.0",
-    ...(nativeEvidence ? ["1.2.0"] : []),
+    ...(nativeEvidence ? ["1.2.0", "1.3.0"] : []),
   ];
   await write("standards/platform.yaml", standard);
   const product = await read("products/customer-orders.yaml");
