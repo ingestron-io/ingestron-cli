@@ -66,6 +66,7 @@ preview channel.
 ingestron recipe validate
 ingestron project validate|resolve <contract-base> --environment <id>
 ingestron gen plan|build <contract-base> --environment <id> --generator <id>
+ingestron gen catalogue --output json
 ingestron gen verify <generated-directory>
 ingestron deploy plan <contract-base> --environment <id> --generator <id>
 ingestron adf init|plan|install|status|verify|upgrade|rollback|plan-uninstall|uninstall

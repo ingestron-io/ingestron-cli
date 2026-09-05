@@ -5,7 +5,9 @@ import {
   readdir,
   readFile,
   realpath,
+  rename,
   rm,
+  rmdir,
   writeFile,
 } from "node:fs/promises";
 import {
@@ -22,6 +24,7 @@ import { CliError } from "./errors.js";
 import { renderTemplateValue } from "./template.js";
 import { compilerProtocol } from "./compiler-protocol.js";
 import { assertReleaseGenerator } from "./standards-release.js";
+import { requireBuiltinGenerator } from "./generator-catalogue.js";
 import {
   assertDeliverySelection,
   resolveDeliveryStandards,
@@ -775,16 +778,10 @@ export async function planGeneration(
   const config = project.generators[generatorId];
   if (!config)
     throw new CliError("GENERATOR_MISSING", `Unknown generator ${generatorId}`);
-  const implementation = config.implementation;
-  if (
-    typeof implementation !== "string" ||
-    !["fabric", "adf", "databricks"].includes(implementation)
-  )
-    throw new CliError(
-      "GENERATOR_UNSUPPORTED",
-      `Unsupported built-in generator ${String(implementation)}`,
-    );
-  const version = typeof config.version === "string" ? config.version : "1.0.0";
+  const { implementation, version } = requireBuiltinGenerator(
+    config.implementation,
+    config.version,
+  );
   const standards = generationStandards(
     config,
     project,
@@ -966,6 +963,114 @@ async function writeJson(path: string, value: unknown): Promise<void> {
 }
 
 export async function buildGeneration(
+  basePath: string,
+  environment: string,
+  generatorId: string,
+  outputPath: string,
+  suppliedInputs: Record<string, string> = {},
+): Promise<Record<string, unknown>> {
+  const base = await safeRoot(basePath);
+  const requested = resolve(outputPath);
+  if (inside(base, requested) || inside(requested, base))
+    throw new CliError(
+      "OUTPUT_PATH",
+      "Generated output must be outside the contract base",
+    );
+  await mkdir(dirname(requested), { recursive: true });
+  const root = join(await realpath(dirname(requested)), basename(requested));
+  if (inside(base, root) || inside(root, base))
+    throw new CliError(
+      "OUTPUT_PATH",
+      "Generated output must be outside the contract base",
+    );
+  const guard = join(dirname(root), `.${basename(root)}.ingestron-build.lock`);
+  await mkdir(guard).catch(() => {
+    throw new CliError(
+      "GENERATION_LOCKED",
+      "Output is locked; inspect the generation lock before recovery",
+    );
+  });
+  const stage = join(guard, "staged");
+  const previous = join(guard, "previous");
+  let backedUp = false;
+  let preserveBackup = false;
+  async function snapshot(): Promise<string | undefined> {
+    const stat = await lstat(root).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return undefined;
+      throw error;
+    });
+    if (!stat) return undefined;
+    if (stat.isSymbolicLink() || !stat.isDirectory())
+      throw new CliError(
+        "OUTPUT_PATH",
+        "Output must be a regular directory, not a link or file",
+      );
+    const entries = await readdir(root);
+    if (entries.length) {
+      const marker = await readSafeYaml(root, "ingestron.lock.yaml").catch(
+        () => {
+          throw new CliError(
+            "OUTPUT_OWNERSHIP",
+            "Non-empty output is not an Ingestron generated directory; choose a new directory",
+          );
+        },
+      );
+      if (
+        !isRecord(marker.value) ||
+        marker.value.contract !== "ingestron.generated-project/v1"
+      )
+        throw new CliError(
+          "OUTPUT_OWNERSHIP",
+          "Output has no recognised Ingestron generation lock",
+        );
+    }
+    return canonical(await collectFiles(root));
+  }
+  try {
+    const before = await snapshot();
+    const result = await renderGeneration(
+      base,
+      environment,
+      generatorId,
+      stage,
+      suppliedInputs,
+    );
+    await verifyGeneration(stage);
+    if (before !== (await snapshot()))
+      throw new CliError(
+        "OUTPUT_CHANGED",
+        "Output changed during generation; previous files were preserved",
+      );
+    if (before !== undefined) {
+      await rename(root, previous);
+      backedUp = true;
+    }
+    try {
+      await rename(stage, root);
+    } catch (error) {
+      if (backedUp) {
+        preserveBackup = true;
+        await rename(previous, root);
+        preserveBackup = false;
+        backedUp = false;
+      }
+      throw error;
+    }
+    if (backedUp) {
+      preserveBackup = true;
+      await rm(previous, { recursive: true });
+      preserveBackup = false;
+    }
+    return { ...result, outputPath: root };
+  } finally {
+    await rm(stage, { recursive: true, force: true });
+    // Never delete a backup when rollback or cleanup failed. Operator recovery
+    // must inspect it; the retained guard prevents another writer proceeding.
+    if (!preserveBackup) await rmdir(guard);
+  }
+}
+
+async function renderGeneration(
   basePath: string,
   environment: string,
   generatorId: string,
@@ -1597,6 +1702,12 @@ export async function buildGeneration(
     );
     files.push("databricks.yml");
   }
+  await writeJson(join(root, "generation-plan.json"), plan);
+  await writeFile(
+    join(root, "README.md"),
+    `# ${project.project.name} — generated ${plan.generator.implementation} source\n\nGenerated deterministically by Ingestron CLI. This source has not been deployed or validated against a customer target.\n\n- Environment: ${environment}\n- Plan: ${plan.planDigest}\n- Contracts: ${plan.contracts.length}\n- Standards: ${plan.standards.map((item) => `${item.id}@${item.version}`).join(", ")}\n\nUse \`ingestron deploy plan\` to create the customer-side deployment handoff.\n`,
+  );
+  files.push("generation-plan.json", "README.md");
   const sortedFiles = files.sort();
   const fileDigests = Object.fromEntries(
     await Promise.all(
@@ -1618,16 +1729,12 @@ export async function buildGeneration(
     planDigest: plan.planDigest,
     generator: plan.generator,
     standards: plan.standards,
+    fileInventory: "complete",
     files: sortedFiles,
     fileDigests,
     deployed: false,
   };
   await writeFile(join(root, "ingestron.lock.yaml"), YAML.stringify(manifest));
-  await writeJson(join(root, "generation-plan.json"), plan);
-  await writeFile(
-    join(root, "README.md"),
-    `# ${project.project.name} — generated ${plan.generator.implementation} source\n\nGenerated deterministically by Ingestron CLI. This source has not been deployed or validated against a customer target.\n\n- Environment: ${environment}\n- Plan: ${plan.planDigest}\n- Contracts: ${plan.contracts.length}\n- Standards: ${plan.standards.map((item) => `${item.id}@${item.version}`).join(", ")}\n\nUse \`ingestron deploy plan\` to create the customer-side deployment handoff.\n`,
-  );
   return { ...manifest, outputPath: root };
 }
 
@@ -1649,6 +1756,11 @@ async function collectFiles(
           path: relative(root, child).split(sep).join("/"),
           digest: digest(await readFile(child)),
         });
+      else
+        throw new CliError(
+          "VERIFY_PATH",
+          `Unsupported file type in generated project: ${child}`,
+        );
     }
   }
   await visit(root);
@@ -1673,6 +1785,47 @@ export async function verifyGeneration(
   const expectedDigests = isRecord(lock.value.fileDigests)
     ? lock.value.fileDigests
     : {};
+  if (
+    expected.length === 0 ||
+    new Set(expected).size !== expected.length ||
+    expected.some(
+      (path) =>
+        typeof path !== "string" ||
+        !path ||
+        path.includes("\\") ||
+        path.startsWith("/") ||
+        path
+          .split("/")
+          .some((part: string) => !part || part === "." || part === "..") ||
+        path === "ingestron.lock.yaml",
+    ) ||
+    Object.keys(expectedDigests).length !== expected.length ||
+    Object.keys(expectedDigests).some((path) => !expected.includes(path)) ||
+    (lock.value.fileInventory !== undefined &&
+      lock.value.fileInventory !== "complete")
+  )
+    throw new CliError("VERIFY_INVALID", "Generated file inventory is invalid");
+  const complete = lock.value.fileInventory === "complete";
+  if (
+    complete &&
+    (!expected.includes("generation-plan.json") ||
+      !expected.includes("README.md"))
+  )
+    throw new CliError(
+      "VERIFY_INVALID",
+      "Complete inventory must include the plan and README",
+    );
+  const permitted = new Set([
+    ...expected,
+    "ingestron.lock.yaml",
+    ...(complete ? [] : ["generation-plan.json", "README.md"]),
+  ]);
+  const unexpected = files.filter((file) => !permitted.has(file.path));
+  if (unexpected.length)
+    throw new CliError(
+      "VERIFY_UNEXPECTED",
+      `Unrecorded generated files: ${unexpected.map((file) => file.path).join(", ")}`,
+    );
   const missingFiles = expected.filter(
     (path) => !files.some((file) => file.path === path),
   );
@@ -1697,6 +1850,9 @@ export async function verifyGeneration(
   return {
     contract: compilerProtocol.commandResults["gen verify"],
     valid: true,
+    verificationScope: complete
+      ? "complete-file-inventory"
+      : "legacy-recorded-files",
     planDigest: lock.value.planDigest,
     files,
   };

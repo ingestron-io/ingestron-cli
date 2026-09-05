@@ -287,11 +287,15 @@ test("generation fails when a selected standards pack excludes the generator ver
     string,
     unknown
   >;
-  generator.version = "9.9.9";
+  generator.version = "1.0.0";
   await writeFile(generatorPath, YAML.stringify(generator));
+  const standardPath = join(root, "standards/platform.yaml");
+  const standard = YAML.parse(await readFile(standardPath, "utf8"));
+  standard.compatibility.generators.adf.versions = ["1.1.0"];
+  await writeFile(standardPath, YAML.stringify(standard));
   await assert.rejects(
     () => planGeneration(root, "dev", "adf"),
-    /does not support adf 9\.9\.9/,
+    /does not support adf 1\.0\.0/,
   );
 });
 

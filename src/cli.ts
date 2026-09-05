@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { compilerProtocol } from "./compiler-protocol.js";
+import { generatorCatalogue } from "./generator-catalogue.js";
 import { inspectStandards, bindStandard } from "./standards-bindings.js";
 import { draftDiscovery } from "./discovery-draft.js";
 import {
@@ -263,6 +264,7 @@ async function run(): Promise<unknown> {
     throw new CliError("USAGE", "Commands: project validate|resolve", 2);
   }
   if (filtered[0] === "gen") {
+    if (filtered[1] === "catalogue") return generatorCatalogue();
     if (filtered[1] === "verify") {
       const path = requiredPath(2, "output path");
       progress("generation.verify", "Verifying generated files and digests");

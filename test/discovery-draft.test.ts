@@ -251,14 +251,14 @@ test("overlapping imports are fenced; existing files with different IDs are not 
 
 test("selected discovery drafts cannot erase build output or generate before review", async (t) => {
   const { root, base, source } = await fixture(t);
+  const out = join(root, "output");
+  await buildGeneration(base, "dev", "adf", out);
   await draftDiscovery(base, source, { apply: true });
   const configPath = join(base, "generators/adf.yaml");
   const config = YAML.parse(await readFile(configPath, "utf8"));
   config.contracts = ["sales-orders"];
   config.products = ["sales-discovery"];
   await writeFile(configPath, YAML.stringify(config));
-  const out = join(root, "output");
-  await mkdir(out);
   await writeFile(join(out, "preserved.txt"), "prior output");
   await assert.rejects(
     buildGeneration(base, "dev", "adf", out),
