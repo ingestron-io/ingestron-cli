@@ -24,6 +24,156 @@ import {
   verifyGeneration,
 } from "../src/project.js";
 
+async function configureNativeIncrementalAdf(base: string) {
+  const contractPath = join(base, "contracts/orders.yaml");
+  const contract = YAML.parse(await readFile(contractPath, "utf8"));
+  contract.source = {
+    platform: "adf",
+    schema: "dbo",
+    dataset: "orders",
+    incremental: {
+      connector: "azure-sql",
+      column: "ingestion_sequence",
+      type: "int64",
+    },
+  };
+  contract.schema.fields.push({
+    name: "ingestion_sequence",
+    type: "long",
+    required: true,
+  });
+  await writeFile(contractPath, YAML.stringify(contract));
+  const configPath = join(base, "generators/adf.yaml");
+  const config = YAML.parse(await readFile(configPath, "utf8"));
+  config.version = "1.3.0";
+  config.contracts = ["orders"];
+  config.schedule = { enabled: false };
+  await writeFile(configPath, YAML.stringify(config));
+  const standardPath = join(base, "standards/platform.yaml");
+  const standard = YAML.parse(await readFile(standardPath, "utf8"));
+  standard.compatibility.generators.adf.versions.push("1.3.0");
+  await writeFile(standardPath, YAML.stringify(standard));
+}
+
+test("ADF 1.3 generates a reservation-scoped Azure SQL source window", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "ingestron-adf-window-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const base = join(root, "base");
+  const output = join(root, "out");
+  await cp("examples/contract-base", base, { recursive: true });
+  await configureNativeIncrementalAdf(base);
+  await buildGeneration(base, "dev", "adf", output);
+
+  const pipeline = JSON.parse(
+    await readFile(
+      join(output, "factory/pipelines/pl_fin_dev_orders.json"),
+      "utf8",
+    ),
+  );
+  assert.deepEqual(Object.keys(pipeline.properties.parameters).sort(), [
+    "handoff_contract",
+    "plan_digest",
+    "reservation_digest",
+    "storage_binding_digest",
+    "watermark_from",
+    "watermark_to",
+  ]);
+  assert.equal(
+    pipeline.properties.parameters.reservation_digest.defaultValue,
+    undefined,
+  );
+  const copy = pipeline.properties.activities.find(
+    (activity: { type: string }) => activity.type === "Copy",
+  );
+  assert.equal(copy.typeProperties.validateDataConsistency, true);
+  assert.equal(copy.validateDataConsistency, undefined);
+  assert.deepEqual(copy.typeProperties.source, {
+    type: "AzureSqlSource",
+    sqlReaderQuery: {
+      type: "Expression",
+      value:
+        "@concat('SELECT * FROM [dbo].[orders] WHERE [ingestion_sequence] > ', pipeline().parameters.watermark_from, ' AND [ingestion_sequence] <= ', pipeline().parameters.watermark_to)",
+    },
+  });
+  assert.deepEqual(copy.outputs[0].parameters.batch_path, {
+    type: "Expression",
+    value:
+      "@concat('batches/', replace(pipeline().parameters.reservation_digest, 'sha256:', ''), '/data')",
+  });
+  const dataset = JSON.parse(
+    await readFile(
+      join(output, "factory/datasets/ds_fin_dev_orders_bronze.json"),
+      "utf8",
+    ),
+  );
+  const sourceDataset = JSON.parse(
+    await readFile(
+      join(output, "factory/datasets/ds_fin_dev_orders.json"),
+      "utf8",
+    ),
+  );
+  assert.equal(sourceDataset.properties.type, "AzureSqlTable");
+  assert.deepEqual(sourceDataset.properties.typeProperties, {
+    schema: "dbo",
+    table: "orders",
+  });
+  assert.deepEqual(dataset.properties.parameters, {
+    batch_path: { type: "String" },
+  });
+  assert.deepEqual(dataset.properties.typeProperties.location.folderPath, {
+    type: "Expression",
+    value: "@dataset().batch_path",
+  });
+  await assert.rejects(
+    readFile(join(output, "factory/triggers/trg_fin_dev_orders.json")),
+    /ENOENT/,
+  );
+  assert.equal((await verifyGeneration(output)).valid, true);
+});
+
+test("ADF 1.3 rejects unsafe incremental source configurations before rendering", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "ingestron-adf-window-invalid-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const base = join(root, "base");
+  await cp("examples/contract-base", base, { recursive: true });
+  await configureNativeIncrementalAdf(base);
+  const contractPath = join(base, "contracts/orders.yaml");
+  const generatorPath = join(base, "generators/adf.yaml");
+  const originalContract = await readFile(contractPath, "utf8");
+  const originalGenerator = await readFile(generatorPath, "utf8");
+
+  for (const alter of [
+    (contract: Record<string, any>) => {
+      contract.source.incremental.type = "string";
+    },
+    (contract: Record<string, any>) => {
+      contract.source.schema = "dbo; DROP TABLE orders";
+    },
+    (contract: Record<string, any>) => {
+      contract.source.adf = { source: { type: "AzureSqlSource" } };
+    },
+    (contract: Record<string, any>) => {
+      contract.target.adf = { datasetReference: "customerDataset" };
+    },
+  ]) {
+    const contract = YAML.parse(originalContract);
+    alter(contract);
+    await writeFile(contractPath, YAML.stringify(contract));
+    await assert.rejects(
+      planGeneration(base, "dev", "adf"),
+      /ADF 1\.3\.0 requires one generated Azure SQL source/,
+    );
+  }
+  await writeFile(contractPath, originalContract);
+  const generator = YAML.parse(originalGenerator);
+  generator.schedule.enabled = true;
+  await writeFile(generatorPath, YAML.stringify(generator));
+  await assert.rejects(
+    planGeneration(base, "dev", "adf"),
+    /checkpoint-aware Runner must supply the reserved interval/,
+  );
+});
+
 test("ADF 1.2.1 nests copy consistency correctly for both ADF and Synapse and retains ownership evidence", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "ingestron-copy-consistency-"));
   t.after(() => rm(root, { recursive: true, force: true }));

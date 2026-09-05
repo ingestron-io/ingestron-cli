@@ -912,6 +912,50 @@ export async function planGeneration(
             `Typed generation requires an explicit target.${key}`,
           );
     }
+    if (implementation === "adf" && version === "1.3.0") {
+      const source = isRecord(contract.source) ? contract.source : {};
+      const incremental = isRecord(source.incremental)
+        ? source.incremental
+        : undefined;
+      const sourceAdf = isRecord(source.adf) ? source.adf : {};
+      const target = isRecord(contract.target) ? contract.target : {};
+      const targetAdf = isRecord(target.adf) ? target.adf : {};
+      const schema = isRecord(contract.schema) ? contract.schema : {};
+      const fields = Array.isArray(schema.fields) ? schema.fields : [];
+      const watermark = fields.find(
+        (field) =>
+          isRecord(field) && incremental && field.name === incremental.column,
+      );
+      if (
+        !incremental ||
+        Object.keys(incremental).some(
+          (key) => !["column", "type", "connector"].includes(key),
+        ) ||
+        incremental.type !== "int64" ||
+        incremental.connector !== "azure-sql" ||
+        typeof incremental.column !== "string" ||
+        !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(incremental.column) ||
+        !watermark ||
+        !isRecord(watermark) ||
+        !["long", "int64"].includes(String(watermark.type)) ||
+        typeof source.schema !== "string" ||
+        !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(source.schema) ||
+        typeof source.dataset !== "string" ||
+        !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(source.dataset) ||
+        sourceAdf.source !== undefined ||
+        targetAdf.datasetReference !== undefined
+      )
+        throw new CliError(
+          "INCREMENTAL_SOURCE_INVALID",
+          "ADF 1.3.0 requires one generated Azure SQL source with an explicit schema/table and declared int64 watermark field",
+        );
+      const schedule = isRecord(config.schedule) ? config.schedule : undefined;
+      if (schedule?.enabled !== false)
+        throw new CliError(
+          "INCREMENTAL_SCHEDULE_UNSAFE",
+          "ADF 1.3.0 requires schedule.enabled: false; a checkpoint-aware Runner must supply the reserved interval",
+        );
+    }
     const targetConfiguration = isRecord(contract.target)
       ? contract.target
       : {};
@@ -1226,12 +1270,13 @@ async function renderGeneration(
     const name = `pl_${asset.target.name}`;
     const ownershipAnnotations =
       plan.generator.implementation === "adf" &&
-      ["1.2.0", "1.2.1"].includes(plan.generator.version)
+      ["1.2.0", "1.2.1", "1.3.0"].includes(plan.generator.version)
         ? [
             `ingestron-owner:${digest(JSON.stringify([project.project.id, plan.environment, id])).slice(7)}`,
           ]
         : [];
     if (plan.generator.implementation === "adf") {
+      const nativeIncremental = plan.generator.version === "1.3.0";
       const pipelineDirectory = join(root, "factory", "pipelines");
       const datasetDirectory = join(root, "factory", "datasets");
       await mkdir(pipelineDirectory, { recursive: true });
@@ -1257,6 +1302,9 @@ async function renderGeneration(
       const targetParameters = isRecord(targetAdf.parameters)
         ? targetAdf.parameters
         : undefined;
+      const incremental = isRecord(asset.source.incremental)
+        ? asset.source.incremental
+        : undefined;
       const reconciliationMetric =
         asset.controls.reconciliation === "file-count" ? "files" : "rows";
       const readMetric =
@@ -1270,6 +1318,12 @@ async function renderGeneration(
           parameters: {
             watermark_from: { type: "String" },
             watermark_to: { type: "String" },
+            ...(nativeIncremental
+              ? {
+                  reservation_digest: { type: "String" },
+                  storage_binding_digest: { type: "String" },
+                }
+              : {}),
             plan_digest: { type: "String", defaultValue: plan.planDigest },
             handoff_contract: {
               type: "String",
@@ -1289,19 +1343,27 @@ async function renderGeneration(
                 secureInput: true,
               },
               typeProperties: {
-                ...(plan.generator.version === "1.2.1"
+                ...(["1.2.1", "1.3.0"].includes(plan.generator.version)
                   ? { validateDataConsistency: true }
                   : {}),
-                source: isRecord(sourceAdf.source)
-                  ? sourceAdf.source
-                  : { type: "__BIND_SOURCE_TYPE__" },
+                source: nativeIncremental
+                  ? {
+                      type: "AzureSqlSource",
+                      sqlReaderQuery: {
+                        type: "Expression",
+                        value: `@concat('SELECT * FROM [${String(asset.source.schema)}].[${String(asset.source.dataset)}] WHERE [${String(incremental!.column)}] > ', pipeline().parameters.watermark_from, ' AND [${String(incremental!.column)}] <= ', pipeline().parameters.watermark_to)`,
+                      },
+                    }
+                  : isRecord(sourceAdf.source)
+                    ? sourceAdf.source
+                    : { type: "__BIND_SOURCE_TYPE__" },
                 sink: isRecord(targetAdf.sink)
                   ? targetAdf.sink
                   : handoffFormat === "parquet"
                     ? { type: "ParquetSink" }
                     : { type: "__BIND_SINK_TYPE__" },
               },
-              ...(plan.generator.version === "1.2.1"
+              ...(["1.2.1", "1.3.0"].includes(plan.generator.version)
                 ? {}
                 : { validateDataConsistency: true }),
               inputs: [
@@ -1315,7 +1377,19 @@ async function renderGeneration(
                 {
                   referenceName: targetReference,
                   type: "DatasetReference",
-                  ...(targetParameters ? { parameters: targetParameters } : {}),
+                  ...(nativeIncremental
+                    ? {
+                        parameters: {
+                          batch_path: {
+                            type: "Expression",
+                            value:
+                              "@concat('batches/', replace(pipeline().parameters.reservation_digest, 'sha256:', ''), '/data')",
+                          },
+                        },
+                      }
+                    : targetParameters
+                      ? { parameters: targetParameters }
+                      : {}),
                 },
               ],
             },
@@ -1368,7 +1442,7 @@ async function renderGeneration(
             ...ownershipAnnotations,
             ...standardAnnotations,
           ],
-          type: "__BIND_DATASET_TYPE__",
+          type: nativeIncremental ? "AzureSqlTable" : "__BIND_DATASET_TYPE__",
           typeProperties: {
             schema: String(asset.source.schema ?? "dbo"),
             table: String(asset.source.dataset ?? id),
@@ -1392,15 +1466,22 @@ async function renderGeneration(
             handoffFormat === "parquet"
               ? "Parquet"
               : "__BIND_TARGET_DATASET_TYPE__",
+          ...(nativeIncremental
+            ? { parameters: { batch_path: { type: "String" } } }
+            : {}),
           typeProperties:
             handoffFormat === "parquet"
               ? {
                   location: {
                     type: "AzureBlobFSLocation",
                     fileSystem: "bronze",
-                    folderPath:
-                      isRecord(generatorConfig.handoff) &&
-                      typeof generatorConfig.handoff.snapshotId === "string"
+                    folderPath: nativeIncremental
+                      ? {
+                          type: "Expression",
+                          value: "@dataset().batch_path",
+                        }
+                      : isRecord(generatorConfig.handoff) &&
+                          typeof generatorConfig.handoff.snapshotId === "string"
                         ? `${generatorConfig.handoff.snapshotId}/${asset.target.name}`
                         : String(asset.target.name),
                   },
@@ -1918,7 +1999,7 @@ async function renderGeneration(
   }
   if (
     plan.generator.implementation === "adf" &&
-    ["1.2.0", "1.2.1"].includes(plan.generator.version)
+    ["1.2.0", "1.2.1", "1.3.0"].includes(plan.generator.version)
   ) {
     const owners = new Map(
       plan.contracts.map((contractId) => [

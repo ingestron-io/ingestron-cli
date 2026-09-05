@@ -65,6 +65,72 @@ with the reviewed `1.2.1` compatibility pin and inspect the output diff before
 any deployment. This private correction has structural tests, not live Azure
 acceptance, and does not enable incremental ingestion.
 
+### Reserved Azure SQL source windows
+
+The opt-in ADF `1.3.0` profile compiles one deliberately narrow incremental
+source shape. It is for an Azure SQL table with a stable, monotonically increasing
+64-bit integer watermark. Define the source on the contract:
+
+```yaml
+source:
+  platform: adf
+  schema: dbo
+  dataset: orders
+  incremental:
+    connector: azure-sql
+    column: ingestion_sequence
+    type: int64
+schema:
+  fields:
+    - name: ingestion_sequence
+      type: long
+      required: true
+```
+
+Select `version: 1.3.0` in the ADF generator and set
+`schedule.enabled: false`. The selected standards pack must explicitly permit
+that exact version. The compiler rejects custom source fragments, customer-owned
+target datasets, unsafe SQL identifiers and a missing or differently typed
+watermark. It generates an `AzureSqlTable` dataset and a lower-exclusive,
+upper-inclusive Copy query:
+
+```sql
+SELECT * FROM [dbo].[orders]
+WHERE [ingestion_sequence] > <watermark_from>
+  AND [ingestion_sequence] <= <watermark_to>
+```
+
+The values are supplied by the checkpoint-aware Runner for an already reserved
+batch. They are emitted as strings because ADF has no 64-bit integer pipeline
+parameter type. Do not invoke this generated pipeline directly or accept
+untrusted parameter values: the generated query is valid only behind Runner's
+canonical int64 validation and exact reservation checks. ADF's pipeline
+[parameters and dynamic expressions](https://learn.microsoft.com/en-us/azure/data-factory/how-to-expression-language-functions)
+and ARM pipeline schema's
+[`sqlReaderQuery`](https://learn.microsoft.com/en-us/azure/templates/microsoft.datafactory/factories/pipelines)
+are the underlying native mechanisms (checked 2026-09-05).
+
+Each Copy writes to `batches/<reservation-digest>/data` through a dataset
+parameter and carries the exact reservation and storage-binding digests as
+required pipeline parameters. This prevents two reserved intervals from sharing
+the generated landing path. The path follows Azure Blob/ADLS dataset folder
+[configuration](https://learn.microsoft.com/en-us/azure/data-factory/connector-azure-blob-storage)
+(checked 2026-09-05). `validateDataConsistency` is emitted at the correct Copy
+type-properties level and the existing row-count reconciliation remains enabled.
+
+This compiler output does **not** yet prove execution in Azure, enumerate the
+files actually committed under that path, attest their hashes, handle updates or
+deletes, or advance a checkpoint. Those remain Runner responsibilities. The
+source table must retain watermark values for replay, and ties at a watermark
+must belong to the same reserved interval. Use the synthetic native-evidence
+fixture to inspect the source without deploying it:
+
+```sh
+node examples/create-phase-one-base.mjs "$sample_root/native-base" --native-evidence
+node dist/cli.js gen build "$sample_root/native-base" --environment dev --generator adf --out "$sample_root/native-adf" --output json
+node dist/cli.js gen verify "$sample_root/native-adf" --output json
+```
+
 Runner's `docs/shared-resource-ownership.md` explains preview, inventory, leases
 and reference-only retirement. This local source build neither deploys resources
 nor proves concurrent native customer execution. A single authoritative Runner

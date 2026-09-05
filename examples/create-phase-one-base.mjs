@@ -23,6 +23,24 @@ export async function createPhaseOneBase(
     "status",
     "updated_at",
   ].map((name) => ({ name, type: "string", required: true }));
+  if (nativeEvidence) {
+    order.schema.fields.push({
+      name: "ingestion_sequence",
+      type: "long",
+      required: true,
+    });
+    order.source = {
+      ...order.source,
+      platform: "adf",
+      schema: "dbo",
+      dataset: "orders",
+      incremental: {
+        connector: "azure-sql",
+        column: "ingestion_sequence",
+        type: "int64",
+      },
+    };
+  }
   order.transformation = JSON.parse(
     await readFile(
       new URL("./phase-one-transformation.json", import.meta.url),
@@ -45,19 +63,24 @@ export async function createPhaseOneBase(
   });
   await write("generators/databricks.yaml", generator);
   const adf = await read("generators/adf.yaml");
-  if (ownerAware) adf.version = "1.2.1";
+  if (nativeEvidence) {
+    adf.version = "1.3.0";
+    adf.contracts = ["orders"];
+    adf.schedule = { enabled: false };
+  } else if (ownerAware) adf.version = "1.2.1";
   adf.handoff = { snapshotId: "snapshot_001" };
   await write("generators/adf.yaml", adf);
   // Only these newly created fixture files are removed; existing destinations are rejected above.
   await rm(resolve(root, "generators/fabric.yaml"));
   await rm(resolve(root, "generators/synapse.yaml"));
   const standard = await read("standards/platform.yaml");
-  if (ownerAware)
+  if (ownerAware || nativeEvidence)
     standard.compatibility.generators.adf.versions = [
       "1.0.0",
       "1.1.0",
       "1.2.0",
       "1.2.1",
+      ...(nativeEvidence ? ["1.3.0"] : []),
     ];
   standard.compatibility.generators.databricks.versions = [
     "1.0.0",
