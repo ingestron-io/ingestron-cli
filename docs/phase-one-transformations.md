@@ -81,7 +81,7 @@ not generated files: successful regeneration replaces owned output. See
 ### Review and apply a candidate from the terminal
 
 The CLI now provides a separate review boundary for a proposed transformation.
-It does not infer a graph from prose. An engineer or future AI integration must
+It does not infer a graph from prose. An engineer or the private Studio drafting path must
 produce the candidate, retaining source digests, locations and statements. This
 private sample uses the checked-in synthetic design itself as evidence:
 
@@ -115,8 +115,10 @@ The candidate accepts only its versioned envelope, 1–128 unique evidence
 references, a known target contract and supported typed graph nodes. Evidence
 statements are data, not commands; digests are retained but their authenticity
 and fidelity to original documents are not independently checked. The Studio
-server adapter uses these same commands. AI-to-candidate drafting is not connected
-yet; accepting an extracted prose proposal does not create this candidate.
+server adapter uses these same commands. The private Studio now offers explicit
+single-source drafting from accepted, provenance-bearing requirements using a
+configured customer Azure AI resource. Accepting a prose proposal alone does not
+create or apply a candidate. Live model quality remains unverified.
 
 ### Apply the candidate in Studio
 
@@ -199,8 +201,8 @@ permissions, the ADF pipeline or native job scheduling.
 ## What is still missing
 
 Do not deploy this sample unchanged. Native compute/identity bindings still use
-explicit placeholders. Source discovery, AI proposal materialisation into this
-graph, incremental checkpoints, late-arriving data and deletes, atomic shared
+explicit placeholders. Wider source discovery, live AI drafting acceptance,
+incremental checkpoints, late-arriving data and deletes, atomic shared
 product fencing, an ADF-to-Databricks execution handoff, native failure/recovery
 proof and workload-scale measurements remain phase-one work. Full-snapshot
 generation must not be advertised as incremental ingestion or customer-ready
