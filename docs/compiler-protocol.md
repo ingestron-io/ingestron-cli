@@ -7,18 +7,20 @@ returns `result.compiler`, with contract `ingestron.compiler-protocol/v1` and a
 `commandResults` map. Consumers check the distribution version separately from
 these semantic result identifiers.
 
-| Command                    | Result contract                               |
-| -------------------------- | --------------------------------------------- |
-| `project resolve`          | `ingestron.contract-base-resolution/v1`       |
-| `project validate`         | `ingestron.project-validation/v1`             |
-| `gen plan`                 | `ingestron.generation-plan/v1`                |
-| `gen build`                | `ingestron.generated-project/v1`              |
-| `gen verify`               | `ingestron.generated-project-verification/v1` |
-| `deploy plan`              | `ingestron.deployment-handoff/v1`             |
-| `project draft-discovery`  | `ingestron.discovery-draft/v1`                |
-| `project import-discovery` | `ingestron.discovery-import/v1`               |
+| Command                     | Result contract                               |
+| --------------------------- | --------------------------------------------- |
+| `project resolve`           | `ingestron.contract-base-resolution/v1`       |
+| `project validate`          | `ingestron.project-validation/v1`             |
+| `gen plan`                  | `ingestron.generation-plan/v1`                |
+| `gen build`                 | `ingestron.generated-project/v1`              |
+| `gen verify`                | `ingestron.generated-project-verification/v1` |
+| `deploy plan`               | `ingestron.deployment-handoff/v1`             |
+| `project draft-discovery`   | `ingestron.discovery-draft/v1`                |
+| `project import-discovery`  | `ingestron.discovery-import/v1`               |
+| `project inspect-standards` | `ingestron.standards-catalogue/v1`            |
+| `project bind-standard`     | `ingestron.standards-binding/v1`              |
 
-`src/project.ts`, `src/discovery-draft.ts` and `src/layered-standards.ts` own these
+`src/project.ts`, `src/discovery-draft.ts`, `src/standards-bindings.ts` and `src/layered-standards.ts` own these
 commands' compilation, drafting and standards semantics.
 Studio invokes this CLI through its server worker; terminal and CI invoke the
 same commands. Handshake identifiers do not validate complete schemas, guarantee

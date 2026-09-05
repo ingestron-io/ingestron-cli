@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { compilerProtocol } from "./compiler-protocol.js";
+import { inspectStandards, bindStandard } from "./standards-bindings.js";
 import { draftDiscovery } from "./discovery-draft.js";
 import {
   adfInit,
@@ -84,7 +85,7 @@ const filtered = args.filter(
 );
 const command = filtered.slice(0, 2).join(" ") || "help";
 const docsUrl = "https://docs.ingestron.io/docs/deployment/cli-reference";
-const usage = `Commands: version; recipe validate; contract check; package verify; project validate|resolve|draft-discovery|import-discovery; gen plan|build|verify; deploy plan; product import|requirements|resolve|plan|diff|approve|export-odcs|generate|verify; adf init|migrate|plan|install|status|verify|upgrade|rollback|plan-uninstall|uninstall; adf connection discover|add|plan|test; adf inventory export; azure init|adopt-init|plan-adopt|adopt|plan|install|create|status|verify|plan-pause|pause|plan-resume|resume|upgrade|rollback|adf-config|plan-uninstall|uninstall|drop. Profiles: ${adfProfiles.join(", ")}. Docs: ${docsUrl}`;
+const usage = `Commands: version; recipe validate; contract check; package verify; project validate|resolve|draft-discovery|import-discovery|inspect-standards|bind-standard; gen plan|build|verify; deploy plan; product import|requirements|resolve|plan|diff|approve|export-odcs|generate|verify; adf init|migrate|plan|install|status|verify|upgrade|rollback|plan-uninstall|uninstall; adf connection discover|add|plan|test; adf inventory export; azure init|adopt-init|plan-adopt|adopt|plan|install|create|status|verify|plan-pause|pause|plan-resume|resume|upgrade|rollback|adf-config|plan-uninstall|uninstall|drop. Profiles: ${adfProfiles.join(", ")}. Docs: ${docsUrl}`;
 const azureInitUsage =
   "ingestron azure init --subscription <subscription-id> --resource-group <name> --location <region> --resource-suffix <suffix> --deployment-mode <temporary-proof|persistent-demo> --ingress-mode <disabled|entra-public> --entra-application-client-id <id> --allowed-client-application-id <id> --pipeline-caller-principal-id <id> --planned-usd <amount> [--config <path>] [--name <name>] [--expires-on <date>]. Docs: " +
   docsUrl;
@@ -192,6 +193,15 @@ async function run(): Promise<unknown> {
     return verifyPackage(requiredPath(2, "package directory"));
   if (filtered[0] === "project") {
     const base = requiredPath(2, "contract-base path");
+    if (filtered[1] === "inspect-standards") return inspectStandards(base);
+    if (filtered[1] === "bind-standard")
+      return bindStandard(base, {
+        scope: requiredOption("--scope"),
+        target: requiredOption("--target"),
+        pack: requiredOption("--pack"),
+        expectedTargetDigest: requiredOption("--expected-target-digest"),
+        expectedPackDigest: requiredOption("--expected-pack-digest"),
+      });
     if (
       filtered[1] === "draft-discovery" ||
       filtered[1] === "import-discovery"
