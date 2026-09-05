@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
 
-export async function createLayeredBase(destination) {
+export async function createLayeredBase(destination, options = {}) {
   const root = resolve(destination);
   await mkdir(root); // Existing destinations are never overwritten.
   const template = fileURLToPath(new URL("./contract-base/", import.meta.url));
@@ -28,6 +28,13 @@ export async function createLayeredBase(destination) {
       .digest("hex")}`,
   });
   const elt = await read("standards/platform.yaml");
+  if (options.releaseInventory)
+    elt.release = JSON.parse(
+      await readFile(
+        new URL("./standards-release.json", import.meta.url),
+        "utf8",
+      ),
+    );
   Object.assign(elt, {
     layer: "elt",
     requires: ["adf.private-source", "adls.parquet", "databricks.delta"],

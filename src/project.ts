@@ -21,6 +21,7 @@ import YAML from "yaml";
 import { CliError } from "./errors.js";
 import { renderTemplateValue } from "./template.js";
 import { compilerProtocol } from "./compiler-protocol.js";
+import { assertReleaseGenerator } from "./standards-release.js";
 import {
   assertDeliverySelection,
   resolveDeliveryStandards,
@@ -603,6 +604,46 @@ export async function resolveProject(
       })),
   });
   const findings: ProjectResolution["findings"] = [];
+  if (deliveryStandards) {
+    const pins = [
+      deliveryStandards.organisation,
+      deliveryStandards.infrastructure,
+      ...Object.values(deliveryStandards.products).map(
+        (product) => product.elt,
+      ),
+    ];
+    for (const pin of new Map(pins.map((pin) => [pin.id, pin])).values()) {
+      const release = pin.release;
+      if (!release) continue;
+      if (
+        release.licence === "NOASSERTION" ||
+        release.outputLicence === "NOASSERTION" ||
+        release.templates.some(
+          (item) =>
+            item.licence === "NOASSERTION" ||
+            item.outputLicence === "NOASSERTION",
+        ) ||
+        release.dependencies.some(
+          (item) =>
+            item.licence === "NOASSERTION" || item.integrity === "NOASSERTION",
+        )
+      ) {
+        findings.push({
+          severity: "warning",
+          code: "STANDARDS_RELEASE_UNVERIFIED",
+          path: pin.id,
+          message: `Standard ${pin.id} contains unknown licence or integrity declarations; source generation is not distribution clearance`,
+        });
+      }
+      if (release.support === "deprecated")
+        findings.push({
+          severity: "warning",
+          code: "STANDARDS_RELEASE_DEPRECATED",
+          path: pin.id,
+          message: `Standard ${pin.id} is declared deprecated; review migration before use`,
+        });
+    }
+  }
   for (const [id, contract] of Object.entries(contracts)) {
     if (isRecord(contract.review) && contract.review.status === "required")
       findings.push({
@@ -768,6 +809,12 @@ export async function planGeneration(
     standards.map((standard) => standard.id),
   );
   if (eltId) {
+    for (const id of products)
+      assertReleaseGenerator(
+        project.deliveryStandards?.products[id]?.elt.release,
+        implementation,
+        version,
+      );
     if (
       standards.some(
         (standard) =>

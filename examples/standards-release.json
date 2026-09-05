@@ -1,0 +1,29 @@
+{
+  "contract": "ingestron.standards-release/v1",
+  "publisher": "Synthetic example only",
+  "support": "experimental",
+  "licence": "NOASSERTION",
+  "outputLicence": "NOASSERTION",
+  "compilerProtocol": "ingestron.compiler-protocol/v1",
+  "templates": [
+    {
+      "id": "adf-bridge",
+      "version": "1.0.0",
+      "engine": "ingestron-builtin",
+      "generator": "adf",
+      "generatorVersion": "1.1.0",
+      "licence": "NOASSERTION",
+      "outputLicence": "NOASSERTION"
+    },
+    {
+      "id": "delta-delivery",
+      "version": "1.0.0",
+      "engine": "ingestron-builtin",
+      "generator": "databricks",
+      "generatorVersion": "1.0.0",
+      "licence": "NOASSERTION",
+      "outputLicence": "NOASSERTION"
+    }
+  ],
+  "dependencies": []
+}

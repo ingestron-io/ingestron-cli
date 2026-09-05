@@ -106,6 +106,9 @@ checks. A real infrastructure change requires separate environment-owner review.
 To revert a local selection, restore the exact prior pack files and their pins
 from Git and regenerate; no automatic target rollback is performed.
 
-Template dependency/SBOM inventories, cost estimates, full operational assurance,
-Studio pack-selection forms and native workload proof remain later slices.
+[Release inventories](standards-release.md) now record bounded template and
+dependency declarations, and [binding recovery](standards-bindings.md) supports
+explicit selection/repinning from Studio or terminal. Verified SBOMs, actual
+template packages, cost estimates, full operational assurance and native workload
+proof remain later slices.
 No existing licences are changed by these bindings.

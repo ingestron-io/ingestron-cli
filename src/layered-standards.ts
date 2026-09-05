@@ -1,7 +1,16 @@
 import { CliError } from "./errors.js";
 import { isRecord } from "./files.js";
+import {
+  resolveStandardsRelease,
+  type StandardsReleaseLock,
+} from "./standards-release.js";
 
-type Pack = { id: string; version: string; digest: string };
+type Pack = {
+  id: string;
+  version: string;
+  digest: string;
+  release?: StandardsReleaseLock;
+};
 export type DeliveryStandards = {
   contract: "ingestron.delivery-standards-lock/v1";
   organisation: Pack;
@@ -87,7 +96,19 @@ function pin(
       `${layer} standard ${value.id} changed or does not match its pinned version/digest`,
     );
   return {
-    lock: { id: value.id, version: value.version, digest: value.digest },
+    lock: {
+      id: value.id,
+      version: value.version,
+      digest: value.digest,
+      ...(source.value.release === undefined
+        ? {}
+        : {
+            release: resolveStandardsRelease(
+              source.value.release,
+              `${value.id}.release`,
+            ),
+          }),
+    },
     pack: source.value,
   };
 }
