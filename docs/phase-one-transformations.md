@@ -36,6 +36,31 @@ orders without a matching customer; it is not a reference-integrity gate.
 
 ## Review and generate in Studio
 
+### Optional shared-product source
+
+For the private Runner ownership workflow, create a separate sample using:
+
+```sh
+node examples/create-phase-one-base.mjs "$sample_root/owner-aware-base" --owner-aware
+node dist/cli.js gen build "$sample_root/owner-aware-base" --environment dev --generator adf --out "$sample_root/owner-aware-output" --output json
+```
+
+This selects ADF generator `1.2.0` and updates the sample's standards compatibility
+declaration and pins. The output includes `resource-ownership.json`, covered by
+the complete generated-file inventory. It maps datasets, pipelines and triggers
+to project/environment/contract owners and selected product consumers. The same
+ADF profile supports Synapse; Databricks ownership is not yet implemented.
+Existing bases stay on their explicitly selected versions. In a real base, review
+and version the relevant standards compatibility change before changing a
+generator version; do not bypass an incompatible pack.
+
+Runner's `docs/shared-resource-ownership.md` explains preview, inventory, leases
+and reference-only retirement. This local source build neither deploys resources
+nor proves concurrent native customer execution. A single authoritative Runner
+state per shared foundation is currently required.
+
+### Start the local preview
+
 From the Studio checkout, start the disposable local preview:
 
 ```sh

@@ -6,7 +6,10 @@ import { pathToFileURL } from "node:url";
 import YAML from "yaml";
 import { createLayeredBase } from "./create-layered-base.mjs";
 
-export async function createPhaseOneBase(destination) {
+export async function createPhaseOneBase(
+  destination,
+  { ownerAware = false } = {},
+) {
   const root = await createLayeredBase(destination);
   const read = async (path) =>
     YAML.parse(await readFile(resolve(root, path), "utf8"));
@@ -41,12 +44,19 @@ export async function createPhaseOneBase(destination) {
   });
   await write("generators/databricks.yaml", generator);
   const adf = await read("generators/adf.yaml");
+  if (ownerAware) adf.version = "1.2.0";
   adf.handoff = { snapshotId: "snapshot_001" };
   await write("generators/adf.yaml", adf);
   // Only these newly created fixture files are removed; existing destinations are rejected above.
   await rm(resolve(root, "generators/fabric.yaml"));
   await rm(resolve(root, "generators/synapse.yaml"));
   const standard = await read("standards/platform.yaml");
+  if (ownerAware)
+    standard.compatibility.generators.adf.versions = [
+      "1.0.0",
+      "1.1.0",
+      "1.2.0",
+    ];
   standard.compatibility.generators.databricks.versions = ["1.0.0", "1.1.0"];
   await write("standards/platform.yaml", standard);
   const product = await read("products/customer-orders.yaml");
@@ -63,7 +73,11 @@ if (
 ) {
   if (!process.argv[2])
     throw new Error(
-      "Usage: node examples/create-phase-one-base.mjs <new-directory>",
+      "Usage: node examples/create-phase-one-base.mjs <new-directory> [--owner-aware]",
     );
-  console.log(await createPhaseOneBase(process.argv[2]));
+  console.log(
+    await createPhaseOneBase(process.argv[2], {
+      ownerAware: process.argv.includes("--owner-aware"),
+    }),
+  );
 }

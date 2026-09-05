@@ -853,16 +853,7 @@ export async function planGeneration(
         "Generator selects an ELT pack outside its products' pinned release",
       );
     const ownedContracts = new Set(
-      products.flatMap((id) => {
-        const product = project.products[id]!;
-        const extension =
-          isRecord(product.product) && isRecord(product.product["x-ingestron"])
-            ? product.product["x-ingestron"]
-            : product;
-        return stringArray(extension.contracts, []).map((reference) =>
-          reference.replace(/^contract:\/\//, ""),
-        );
-      }),
+      products.flatMap((id) => productContractIds(project.products[id]!)),
     );
     for (const id of contracts)
       if (!ownedContracts.has(id))
@@ -1233,6 +1224,13 @@ async function renderGeneration(
   for (const id of plan.contracts) {
     const asset = plan.assets.find((item) => item.assetId === id)!;
     const name = `pl_${asset.target.name}`;
+    const ownershipAnnotations =
+      plan.generator.implementation === "adf" &&
+      plan.generator.version === "1.2.0"
+        ? [
+            `ingestron-owner:${digest(JSON.stringify([project.project.id, plan.environment, id])).slice(7)}`,
+          ]
+        : [];
     if (plan.generator.implementation === "adf") {
       const pipelineDirectory = join(root, "factory", "pipelines");
       const datasetDirectory = join(root, "factory", "datasets");
@@ -1346,6 +1344,7 @@ async function renderGeneration(
           ],
           annotations: [
             "generated-by-ingestron",
+            ...ownershipAnnotations,
             `plan:${plan.planDigest}`,
             `handoff:${handoffContract}`,
             ...standardAnnotations,
@@ -1359,7 +1358,11 @@ async function renderGeneration(
             referenceName: "__BIND_SOURCE_LINKED_SERVICE__",
             type: "LinkedServiceReference",
           },
-          annotations: ["generated-by-ingestron", ...standardAnnotations],
+          annotations: [
+            "generated-by-ingestron",
+            ...ownershipAnnotations,
+            ...standardAnnotations,
+          ],
           type: "__BIND_DATASET_TYPE__",
           typeProperties: {
             schema: String(asset.source.schema ?? "dbo"),
@@ -1376,6 +1379,7 @@ async function renderGeneration(
           },
           annotations: [
             "generated-by-ingestron",
+            ...ownershipAnnotations,
             `handoff:${handoffContract}`,
             ...standardAnnotations,
           ],
@@ -1417,6 +1421,7 @@ async function renderGeneration(
             description: `Generated schedule for ${id}; activation remains an explicit operator action.`,
             annotations: [
               "generated-by-ingestron",
+              ...ownershipAnnotations,
               `plan:${plan.planDigest}`,
               "activation:manual",
               ...standardAnnotations,
@@ -1824,6 +1829,50 @@ async function renderGeneration(
     );
     files.push("databricks.yml");
   }
+  if (
+    plan.generator.implementation === "adf" &&
+    plan.generator.version === "1.2.0"
+  ) {
+    const owners = new Map(
+      plan.contracts.map((contractId) => [
+        `ingestron-owner:${digest(JSON.stringify([project.project.id, plan.environment, contractId])).slice(7)}`,
+        {
+          contractId,
+          products: plan.products
+            .filter((productId) =>
+              productContractIds(project.products[productId]!).includes(
+                contractId,
+              ),
+            )
+            .sort(),
+        },
+      ]),
+    );
+    const resources = [];
+    for (const path of files
+      .filter((path) => /^factory\/(datasets|pipelines|triggers)\//.test(path))
+      .sort()) {
+      const definition = JSON.parse(await readFile(join(root, path), "utf8"));
+      const marker = definition.properties.annotations.find((value: string) =>
+        value.startsWith("ingestron-owner:"),
+      );
+      const owner = owners.get(marker);
+      if (!owner || !owner.products.length)
+        throw new CliError(
+          "RESOURCE_OWNERSHIP",
+          "Owner-aware generation requires each contract to be referenced by a selected product",
+        );
+      resources.push({ path, owner: marker, ...owner });
+    }
+    await writeJson(join(root, "resource-ownership.json"), {
+      contract: "ingestron.resource-ownership/v1",
+      projectId: project.project.id,
+      environment: plan.environment,
+      products: [...plan.products].sort(),
+      resources,
+    });
+    files.push("resource-ownership.json");
+  }
   await writeJson(join(root, "generation-plan.json"), plan);
   await writeFile(
     join(root, "README.md"),
@@ -1858,6 +1907,16 @@ async function renderGeneration(
   };
   await writeFile(join(root, "ingestron.lock.yaml"), YAML.stringify(manifest));
   return { ...manifest, outputPath: root };
+}
+
+function productContractIds(product: Record<string, unknown>): string[] {
+  const extension =
+    isRecord(product.product) && isRecord(product.product["x-ingestron"])
+      ? product.product["x-ingestron"]
+      : product;
+  return stringArray(extension.contracts, []).map((reference) =>
+    reference.replace(/^contract:\/\//, ""),
+  );
 }
 
 async function collectFiles(
