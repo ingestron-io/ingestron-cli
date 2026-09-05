@@ -67,6 +67,9 @@ ingestron recipe validate
 ingestron project validate|resolve <contract-base> --environment <id>
 ingestron gen plan|build <contract-base> --environment <id> --generator <id>
 ingestron gen catalogue --output json
+ingestron standards verify <package-directory> [--digest <reviewed-sha256>]
+ingestron standards import <package-directory> --registry <directory> --digest <reviewed-sha256>
+ingestron standards catalogue <registry-directory>
 ingestron gen verify <generated-directory>
 ingestron deploy plan <contract-base> --environment <id> --generator <id>
 ingestron adf init|plan|install|status|verify|upgrade|rollback|plan-uninstall|uninstall

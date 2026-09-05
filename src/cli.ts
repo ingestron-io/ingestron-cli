@@ -4,6 +4,11 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { compilerProtocol } from "./compiler-protocol.js";
 import { generatorCatalogue } from "./generator-catalogue.js";
+import {
+  verifyStandardsPackage,
+  importStandardsPackage,
+  catalogueStandardsPackages,
+} from "./standards-package.js";
 import { inspectStandards, bindStandard } from "./standards-bindings.js";
 import { draftDiscovery } from "./discovery-draft.js";
 import {
@@ -90,6 +95,8 @@ const usage = `Commands: version; recipe validate; contract check; package verif
 const azureInitUsage =
   "ingestron azure init --subscription <subscription-id> --resource-group <name> --location <region> --resource-suffix <suffix> --deployment-mode <temporary-proof|persistent-demo> --ingress-mode <disabled|entra-public> --entra-application-client-id <id> --allowed-client-application-id <id> --pipeline-caller-principal-id <id> --planned-usd <amount> [--config <path>] [--name <name>] [--expires-on <date>]. Docs: " +
   docsUrl;
+const standardsUsage =
+  "ingestron standards verify <package-directory> [--digest <reviewed-sha256>]; ingestron standards import <package-directory> --registry <directory> --digest <reviewed-sha256>; ingestron standards catalogue <registry-directory>. Local inspection/import only; no generator execution or binding change.";
 
 type ProgressLevel = "info" | "success" | "error";
 
@@ -174,7 +181,7 @@ async function run(): Promise<unknown> {
       usage:
         filtered[0] === "azure" && filtered[1] === "init"
           ? azureInitUsage
-          : usage,
+          : `${usage}\n${standardsUsage}`,
     };
   if (filtered[0] === "version") {
     const packagePath = resolve(
@@ -188,6 +195,21 @@ async function run(): Promise<unknown> {
   }
   if (filtered[0] === "recipe" && filtered[1] === "validate")
     return validateRecipe(requiredPath(2, "recipe path"));
+  if (filtered[0] === "standards") {
+    if (filtered[1] === "verify")
+      return verifyStandardsPackage(
+        requiredPath(2, "package directory"),
+        filtered.includes("--digest") ? requiredOption("--digest") : undefined,
+      );
+    if (filtered[1] === "import")
+      return importStandardsPackage(
+        requiredPath(2, "package directory"),
+        requiredOption("--registry"),
+        requiredOption("--digest"),
+      );
+    if (filtered[1] === "catalogue")
+      return catalogueStandardsPackages(requiredPath(2, "registry directory"));
+  }
   if (filtered[0] === "contract" && filtered[1] === "check")
     return checkContract(requiredPath(2, "contract path"));
   if (filtered[0] === "package" && filtered[1] === "verify")
