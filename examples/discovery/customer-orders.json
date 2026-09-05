@@ -1,0 +1,38 @@
+{
+  "contract": "ingestron.discovery.adf/v1",
+  "product": "discovered-sales",
+  "factory": "synthetic-sales-factory",
+  "datasets": [
+    {
+      "name": "source_orders",
+      "linkedService": "synthetic-sql",
+      "type": "AzureSqlTable",
+      "schemaName": "sales",
+      "table": "orders",
+      "primaryKey": ["order_id"],
+      "columns": [
+        { "name": "order_id", "logicalType": "string", "nullable": false },
+        {
+          "name": "amount",
+          "logicalType": "decimal(28,8)",
+          "nativeType": "decimal",
+          "precision": 28,
+          "scale": 8,
+          "nullable": false
+        },
+        { "name": "modified_at", "logicalType": "timestamp", "nullable": false }
+      ]
+    },
+    {
+      "name": "source_customers",
+      "linkedService": "synthetic-sql",
+      "type": "AzureSqlTable",
+      "schemaName": "sales",
+      "table": "customers",
+      "columns": [
+        { "name": "customer_id", "logicalType": "string", "nullable": false },
+        { "name": "segment", "logicalType": "string" }
+      ]
+    }
+  ]
+}

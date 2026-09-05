@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { compilerProtocol } from "./compiler-protocol.js";
+import { draftDiscovery } from "./discovery-draft.js";
 import {
   adfInit,
   adfInstall,
@@ -83,7 +84,7 @@ const filtered = args.filter(
 );
 const command = filtered.slice(0, 2).join(" ") || "help";
 const docsUrl = "https://docs.ingestron.io/docs/deployment/cli-reference";
-const usage = `Commands: version; recipe validate; contract check; package verify; project validate|resolve; gen plan|build|verify; deploy plan; product import|requirements|resolve|plan|diff|approve|export-odcs|generate|verify; adf init|migrate|plan|install|status|verify|upgrade|rollback|plan-uninstall|uninstall; adf connection discover|add|plan|test; adf inventory export; azure init|adopt-init|plan-adopt|adopt|plan|install|create|status|verify|plan-pause|pause|plan-resume|resume|upgrade|rollback|adf-config|plan-uninstall|uninstall|drop. Profiles: ${adfProfiles.join(", ")}. Docs: ${docsUrl}`;
+const usage = `Commands: version; recipe validate; contract check; package verify; project validate|resolve|draft-discovery|import-discovery; gen plan|build|verify; deploy plan; product import|requirements|resolve|plan|diff|approve|export-odcs|generate|verify; adf init|migrate|plan|install|status|verify|upgrade|rollback|plan-uninstall|uninstall; adf connection discover|add|plan|test; adf inventory export; azure init|adopt-init|plan-adopt|adopt|plan|install|create|status|verify|plan-pause|pause|plan-resume|resume|upgrade|rollback|adf-config|plan-uninstall|uninstall|drop. Profiles: ${adfProfiles.join(", ")}. Docs: ${docsUrl}`;
 const azureInitUsage =
   "ingestron azure init --subscription <subscription-id> --resource-group <name> --location <region> --resource-suffix <suffix> --deployment-mode <temporary-proof|persistent-demo> --ingress-mode <disabled|entra-public> --entra-application-client-id <id> --allowed-client-application-id <id> --pipeline-caller-principal-id <id> --planned-usd <amount> [--config <path>] [--name <name>] [--expires-on <date>]. Docs: " +
   docsUrl;
@@ -191,6 +192,28 @@ async function run(): Promise<unknown> {
     return verifyPackage(requiredPath(2, "package directory"));
   if (filtered[0] === "project") {
     const base = requiredPath(2, "contract-base path");
+    if (
+      filtered[1] === "draft-discovery" ||
+      filtered[1] === "import-discovery"
+    ) {
+      progress(
+        "discovery.draft",
+        "Preparing reviewable contracts from technical metadata",
+      );
+      const result = await draftDiscovery(base, requiredOption("--inventory"), {
+        sourceName: option("--source-name"),
+        sourceDigest: option("--source-digest"),
+        productId: option("--product-id"),
+        apply: filtered[1] === "import-discovery",
+      });
+      progress(
+        "discovery.draft",
+        `${result.imported} draft contracts; review required`,
+        "success",
+        { imported: result.imported, conflicts: result.conflicts.length },
+      );
+      return result;
+    }
     const environment = requiredOption("--environment");
     progress("project.resolve", `Resolving contract base for ${environment}`);
     const resolution = await resolveProject(
@@ -213,6 +236,9 @@ async function run(): Promise<unknown> {
     if (filtered[1] === "validate")
       return {
         contract: compilerProtocol.commandResults["project validate"],
+        ...(resolution.deliveryStandards
+          ? { deliveryStandards: resolution.deliveryStandards }
+          : {}),
         valid: !resolution.findings.some(
           (finding) => finding.severity === "error",
         ),

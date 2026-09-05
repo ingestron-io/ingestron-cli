@@ -21,6 +21,11 @@ import YAML from "yaml";
 import { CliError } from "./errors.js";
 import { renderTemplateValue } from "./template.js";
 import { compilerProtocol } from "./compiler-protocol.js";
+import {
+  assertDeliverySelection,
+  resolveDeliveryStandards,
+  type DeliveryStandards,
+} from "./layered-standards.js";
 
 const MAX_FILES = 10_000;
 const MAX_FILE_BYTES = 1_048_576;
@@ -55,6 +60,7 @@ export type ProjectResolution = {
   basePath: string;
   project: { id: string; name: string };
   environment: string;
+  deliveryStandards?: DeliveryStandards;
   digest: string;
   inputs: Record<string, unknown>;
   products: Record<string, Record<string, unknown>>;
@@ -79,6 +85,7 @@ export type GenerationPlan = {
   contract: (typeof compilerProtocol.commandResults)["gen plan"];
   resolutionDigest: string;
   environment: string;
+  deliveryStandards?: DeliveryStandards;
   generator: {
     id: string;
     implementation: string;
@@ -133,14 +140,13 @@ function safeId(value: unknown, label: string): string {
 }
 
 async function safeRoot(path: string): Promise<string> {
-  const root = await realpath(resolve(path));
-  const stat = await lstat(root);
+  const stat = await lstat(resolve(path));
   if (!stat.isDirectory() || stat.isSymbolicLink())
     throw new CliError(
       "PROJECT_PATH",
       "Contract base must be a regular directory",
     );
-  return root;
+  return realpath(resolve(path));
 }
 
 function inside(root: string, path: string): boolean {
@@ -187,6 +193,20 @@ async function yamlFiles(root: string, directory: string): Promise<string[]> {
       "PROJECT_PATH",
       `Directory escapes contract base: ${directory}`,
     );
+  let current = root;
+  for (const part of relative(root, start).split(sep).filter(Boolean)) {
+    current = join(current, part);
+    const info = await lstat(current).catch((error) => {
+      if (error.code === "ENOENT") return undefined;
+      throw error;
+    });
+    if (!info) return [];
+    if (!info.isDirectory() || info.isSymbolicLink())
+      throw new CliError(
+        "PROJECT_PATH",
+        `Expected a non-symbolic directory: ${directory}`,
+      );
+  }
   const output: string[] = [];
   async function visit(path: string): Promise<void> {
     const entries = await readdir(path, { withFileTypes: true });
@@ -338,11 +358,8 @@ function containsTemplate(value: unknown): boolean {
   return isRecord(value) && Object.values(value).some(containsTemplate);
 }
 
-export async function resolveProject(
-  basePath: string,
-  environmentId: string,
-  suppliedInputs: Record<string, string> = {},
-): Promise<ProjectResolution> {
+/** Shared, unresolved source inventory for compilation and draft authoring. */
+export async function loadContractBase(basePath: string) {
   const root = await safeRoot(basePath);
   const manifestFile = await readSafeYaml(root, "ingestron.yaml");
   if (!isRecord(manifestFile.value))
@@ -414,6 +431,35 @@ export async function resolveProject(
       sourceFiles.push({ path, digest: digest(file.bytes), category, id });
     }
   }
+  return {
+    root,
+    manifest,
+    projectId,
+    projectName,
+    directories,
+    totalBytes,
+    sourceFiles,
+    documents,
+    byPath,
+    byCategory,
+  };
+}
+
+export async function resolveProject(
+  basePath: string,
+  environmentId: string,
+  suppliedInputs: Record<string, string> = {},
+): Promise<ProjectResolution> {
+  const {
+    root,
+    manifest,
+    projectId,
+    projectName,
+    sourceFiles,
+    documents,
+    byPath,
+    byCategory,
+  } = await loadContractBase(basePath);
   const environment = byCategory.get("environment")?.get(environmentId);
   if (!environment)
     throw new CliError(
@@ -544,7 +590,28 @@ export async function resolveProject(
   const contracts = mapFor("contract");
   const standards = mapFor("standard");
   const generators = mapFor("generator");
+  const deliveryStandards = resolveDeliveryStandards({
+    manifest,
+    environment: resolved.get(environment)!,
+    products,
+    sources: documents
+      .filter((document) => document.category === "standard")
+      .map((document) => ({
+        id: document.id,
+        value: document.value,
+        digest: sourceFiles.find((file) => file.path === document.path)!.digest,
+      })),
+  });
   const findings: ProjectResolution["findings"] = [];
+  for (const [id, contract] of Object.entries(contracts)) {
+    if (isRecord(contract.review) && contract.review.status === "required")
+      findings.push({
+        severity: "warning",
+        code: "DISCOVERY_REVIEW_REQUIRED",
+        message: `Contract ${id} is a discovery draft; review source facts and set delivery policy before generation`,
+        path: id,
+      });
+  }
   if (Object.keys(products).length === 0)
     findings.push({
       severity: "warning",
@@ -576,6 +643,7 @@ export async function resolveProject(
   };
   return {
     contract: compilerProtocol.commandResults["project resolve"],
+    ...(deliveryStandards ? { deliveryStandards } : {}),
     basePath: root,
     project: { id: projectId, name: projectName },
     environment: environmentId,
@@ -602,7 +670,7 @@ function stringArray(value: unknown, fallback: string[]): string[] {
 
 function assetName(contract: Record<string, unknown>, id: string): string {
   const target = isRecord(contract.target) ? contract.target : {};
-  const value = target.name ?? contract.name ?? id.replaceAll(".", "_");
+  const value = target.name ?? contract.name ?? id.replaceAll(/[.-]/g, "_");
   if (typeof value !== "string" || !/^[a-z][a-z0-9_]{0,127}$/.test(value))
     throw new CliError(
       "GENERATOR_INVALID",
@@ -694,6 +762,42 @@ export async function planGeneration(
   for (const id of contracts)
     if (!project.contracts[id])
       throw new CliError("GENERATOR_SELECTION", `Unknown contract ${id}`);
+  const eltId = assertDeliverySelection(
+    project.deliveryStandards,
+    products,
+    standards.map((standard) => standard.id),
+  );
+  if (eltId) {
+    if (
+      standards.some(
+        (standard) =>
+          project.standards[standard.id]?.layer === "elt" &&
+          standard.id !== eltId,
+      )
+    )
+      throw new CliError(
+        "STANDARDS_INCOMPATIBLE",
+        "Generator selects an ELT pack outside its products' pinned release",
+      );
+    const ownedContracts = new Set(
+      products.flatMap((id) => {
+        const product = project.products[id]!;
+        const extension =
+          isRecord(product.product) && isRecord(product.product["x-ingestron"])
+            ? product.product["x-ingestron"]
+            : product;
+        return stringArray(extension.contracts, []).map((reference) =>
+          reference.replace(/^contract:\/\//, ""),
+        );
+      }),
+    );
+    for (const id of contracts)
+      if (!ownedContracts.has(id))
+        throw new CliError(
+          "STANDARDS_INCOMPATIBLE",
+          `Contract ${id} is not owned or referenced by the selected products`,
+        );
+  }
   const assets = contracts.map((id) => {
     const contract = project.contracts[id]!;
     const targetConfiguration = isRecord(contract.target)
@@ -723,6 +827,9 @@ export async function planGeneration(
   };
   const body = {
     contract: compilerProtocol.commandResults["gen plan"],
+    ...(project.deliveryStandards
+      ? { deliveryStandards: project.deliveryStandards }
+      : {}),
     resolutionDigest: project.digest,
     environment,
     generator,
@@ -824,8 +931,37 @@ export async function buildGeneration(
     generatorId,
     suppliedInputs,
   );
+  const project = await resolveProject(basePath, environment, suppliedInputs);
+  if (project.digest !== plan.resolutionDigest)
+    throw new CliError(
+      "PROJECT_CHANGED",
+      "Contract base changed while preparing generation; retry from the new revision",
+    );
+  for (const id of plan.contracts) {
+    const contract = project.contracts[id]!;
+    if (isRecord(contract.review)) {
+      const schema = isRecord(contract.schema) ? contract.schema : {};
+      const fields = Array.isArray(schema.fields) ? schema.fields : [];
+      if (
+        contract.review.status !== "approved" ||
+        !isRecord(contract.target) ||
+        !contract.target.name ||
+        fields.length === 0 ||
+        fields.some(
+          (field) =>
+            !isRecord(field) ||
+            field.type === "unknown" ||
+            typeof field.required !== "boolean",
+        )
+      )
+        throw new CliError(
+          "DISCOVERY_REVIEW_REQUIRED",
+          `Contract ${id} needs approved review, an explicit target and resolved field types/nullability before generation`,
+        );
+    }
+  }
   const root = resolve(outputPath);
-  if (root === resolve(basePath) || inside(resolve(basePath), root))
+  if (inside(resolve(basePath), root) || inside(root, resolve(basePath)))
     throw new CliError(
       "OUTPUT_PATH",
       "Generated output must be outside the contract base",
@@ -834,12 +970,18 @@ export async function buildGeneration(
   await mkdir(join(root, "items"), { recursive: true });
   await mkdir(join(root, "definitions"), { recursive: true });
   await mkdir(join(root, "contracts"), { recursive: true });
-  const project = await resolveProject(basePath, environment, suppliedInputs);
   const generatorConfig = project.generators[plan.generator.id]!;
   const selectedStandards = plan.standards.map(
     (item) => project.standards[item.id]!,
   );
-  const primaryStandard = selectedStandards[0] ?? {};
+  const eltId = assertDeliverySelection(
+    project.deliveryStandards,
+    plan.products,
+    plan.standards.map((standard) => standard.id),
+  );
+  const primaryStandard = eltId
+    ? project.standards[eltId]!
+    : (selectedStandards[0] ?? {});
   const architecture = isRecord(primaryStandard.architecture)
     ? primaryStandard.architecture
     : {};
@@ -1419,6 +1561,9 @@ export async function buildGeneration(
   );
   const manifest = {
     contract: compilerProtocol.commandResults["gen build"],
+    ...(plan.deliveryStandards
+      ? { deliveryStandards: plan.deliveryStandards }
+      : {}),
     target: plan.generator.implementation,
     environment,
     project: project.project,
@@ -1549,6 +1694,9 @@ export async function deploymentPlan(
   const targetBinding = { platform: generatorId, ...configuredTarget };
   return {
     contract: compilerProtocol.commandResults["deploy plan"],
+    ...(plan.deliveryStandards
+      ? { deliveryStandards: plan.deliveryStandards }
+      : {}),
     mutatesTarget: false,
     requiredExecution: "customer-terminal-or-ci",
     project: project.project,
