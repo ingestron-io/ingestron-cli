@@ -873,19 +873,19 @@ export async function planGeneration(
         "TRANSFORMATION_UNSUPPORTED",
         "Typed transformations are implemented for Databricks only; ADF is the landing bridge",
       );
-    if (transformation && version !== "1.1.0")
+    if (transformation && !["1.1.0", "1.2.0"].includes(version))
       throw new CliError(
         "TRANSFORMATION_UNSUPPORTED",
-        "Typed transformations require Databricks generator 1.1.0",
+        "Typed transformations require Databricks generator 1.1.0 or 1.2.0",
       );
     if (
       implementation === "databricks" &&
-      version === "1.1.0" &&
+      ["1.1.0", "1.2.0"].includes(version) &&
       !transformation
     )
       throw new CliError(
         "TRANSFORMATION_INVALID",
-        `Databricks 1.1.0 requires an explicit reviewed transformation for ${id}`,
+        `Databricks ${version} requires an explicit reviewed transformation for ${id}`,
       );
     if (transformation) {
       const handoff = isRecord(config.handoff) ? config.handoff : {};
@@ -1507,9 +1507,24 @@ async function renderGeneration(
       const expectedColumns = fields.flatMap((field) =>
         isRecord(field) && typeof field.name === "string" ? [field.name] : [],
       );
+      const nativeEvidence = plan.generator.version === "1.2.0";
+      const ownerDigest = digest(
+        JSON.stringify([project.project.id, plan.environment, id]),
+      );
+      const governedRunParameters = nativeEvidence
+        ? {
+            plan_digest: "{{job.parameters.plan_digest}}",
+            owner_digest: "{{job.parameters.owner_digest}}",
+            reservation_digest: "{{job.parameters.reservation_digest}}",
+            storage_binding_digest: "{{job.parameters.storage_binding_digest}}",
+          }
+        : {};
       const taskParameters = {
         asset_id: id,
-        plan_digest: plan.planDigest,
+        plan_digest: nativeEvidence
+          ? governedRunParameters.plan_digest
+          : plan.planDigest,
+        ...governedRunParameters,
         handoff_contract: handoffContract,
         bronze_path: bronzePath,
         silver_table: silverTable,
@@ -1529,7 +1544,24 @@ async function renderGeneration(
                 standards: plan.standards
                   .map((item) => `${item.id}@${item.version}`)
                   .join(","),
+                ...(nativeEvidence ? { owner_digest: ownerDigest } : {}),
               },
+              ...(nativeEvidence
+                ? {
+                    parameters: [
+                      { name: "plan_digest", default: plan.planDigest },
+                      { name: "owner_digest", default: ownerDigest },
+                      {
+                        name: "reservation_digest",
+                        default: "__BIND_RESERVATION_DIGEST__",
+                      },
+                      {
+                        name: "storage_binding_digest",
+                        default: "__BIND_STORAGE_BINDING_DIGEST__",
+                      },
+                    ],
+                  }
+                : {}),
               tasks: [
                 {
                   task_key: "validate_bronze",
@@ -1579,6 +1611,7 @@ async function renderGeneration(
                       asset_id: id,
                       bronze_path: bronzePath,
                       gold_table: goldTable,
+                      ...governedRunParameters,
                       ...(asset.transformation
                         ? { ...taskParameters, stage: "reconcile" }
                         : {}),

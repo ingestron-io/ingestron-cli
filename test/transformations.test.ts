@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -133,6 +134,37 @@ test("Databricks 1.1 generation retains transformation and uses value-aware reco
     resource.resources.jobs.pl_fin_dev_orders.tasks[0].notebook_task
       .base_parameters.silver_table,
     "demo.customer360.fin_dev_orders_silver",
+  );
+  generator.version = "1.2.0";
+  standard.compatibility.generators.databricks.versions.push("1.2.0");
+  await writeFile(generatorPath, YAML.stringify(generator));
+  await writeFile(standardPath, YAML.stringify(standard));
+  const evidenceOutput = join(root, "evidence-output");
+  await buildGeneration(base, "dev", "databricks", evidenceOutput);
+  assert.equal((await verifyGeneration(evidenceOutput)).valid, true);
+  const evidenceResource = YAML.parse(
+    await readFile(join(evidenceOutput, "resources/orders.job.yml"), "utf8"),
+  ).resources.jobs.pl_fin_dev_orders;
+  assert.equal(
+    evidenceResource.tags.owner_digest,
+    `sha256:${createHash("sha256")
+      .update(JSON.stringify(["finance-platform", "dev", "orders"]))
+      .digest("hex")}`,
+  );
+  assert.deepEqual(
+    evidenceResource.parameters.map(
+      (parameter: { name: string }) => parameter.name,
+    ),
+    [
+      "plan_digest",
+      "owner_digest",
+      "reservation_digest",
+      "storage_binding_digest",
+    ],
+  );
+  assert.equal(
+    evidenceResource.tasks[3].notebook_task.base_parameters.reservation_digest,
+    "{{job.parameters.reservation_digest}}",
   );
   order.transformation.review.status = "pending";
   await writeFile(orderPath, YAML.stringify(order));

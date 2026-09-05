@@ -182,9 +182,20 @@ its message and re-preview changed source rather than blindly retrying a stale
 digest. The browser journey has been exercised on a disposable synthetic base,
 not against a live customer deployment.
 
-Databricks generator `version: 1.1.0` requires an approved transformation on each
-selected output contract. Referenced input contracts remain separate metadata
-objects. Version 1.0.0 retains its legacy generation behaviour.
+Databricks generator `version: 1.1.0` or `1.2.0` requires an approved
+transformation on each selected output contract. Referenced input contracts
+remain separate metadata objects. Version 1.0.0 retains its legacy generation
+behaviour.
+
+Version 1.2.0 adds the contract-owner digest to the generated job tags and declares
+`plan_digest`, `owner_digest`, `reservation_digest` and
+`storage_binding_digest` as job-level parameters. Tasks receive dynamic references
+to these values. A customer-side invocation must replace the two reservation
+placeholders with the active reviewed batch values; they are identifiers, not
+secrets. This makes the run observable by Runner's internal exact-run verifier,
+but does not make the existing full-snapshot notebook incremental or produce an
+authoritative Delta publication manifest. Do not select 1.2.0 as an end-to-end
+incremental profile yet.
 
 - `review.requirements` contains references to reviewed evidence. These strings
   are required but are not independently resolved or authenticated by the compiler.

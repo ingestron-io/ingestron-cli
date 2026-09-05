@@ -14,9 +14,13 @@ pnpm build
 node dist/cli.js gen catalogue --output json
 ```
 
-The catalogue returns `ingestron.generator-catalogue/v1`: ADF 1.0.0 and 1.1.0,
-Databricks 1.0.0 and 1.1.0, and Fabric 1.0.0. The Databricks 1.1.0 profile adds
-[reviewed full-snapshot transformations](phase-one-transformations.md).
+The catalogue returns `ingestron.generator-catalogue/v1`: ADF 1.0.0, 1.1.0,
+1.2.0 and 1.2.1; Databricks 1.0.0, 1.1.0 and 1.2.0; and Fabric 1.0.0. The
+Databricks 1.1.0 profile adds
+[reviewed full-snapshot transformations](phase-one-transformations.md). Version
+1.2.0 retains that compiler and adds native-evidence job tags and four governed
+job parameters for the internal Runner observer. It does not yet generate a
+working incremental publication flow.
 Synapse uses the ADF implementation. These are
 compatibility profiles implemented by the current CLI, not archived historical
 executables or downloadable plugins. External packages are not supported yet.
