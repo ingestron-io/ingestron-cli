@@ -3,6 +3,10 @@ import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { compilerProtocol } from "./compiler-protocol.js";
+import {
+  previewTransformation,
+  applyTransformation,
+} from "./transformation-proposal.js";
 import { generatorCatalogue } from "./generator-catalogue.js";
 import {
   verifyStandardsPackage,
@@ -97,6 +101,8 @@ const azureInitUsage =
   docsUrl;
 const standardsUsage =
   "ingestron standards verify <package-directory> [--digest <reviewed-sha256>]; ingestron standards import <package-directory> --registry <directory> --digest <reviewed-sha256>; ingestron standards catalogue <registry-directory>. Local inspection/import only; no generator execution or binding change.";
+const transformationUsage =
+  "ingestron project preview-transformation <base> --environment <name> --candidate <json-file>; ingestron project apply-transformation <base> --environment <name> --candidate <json-file> --reviewed-digest <sha256>. Local source review only; no deployment approval.";
 
 type ProgressLevel = "info" | "success" | "error";
 
@@ -181,7 +187,7 @@ async function run(): Promise<unknown> {
       usage:
         filtered[0] === "azure" && filtered[1] === "init"
           ? azureInitUsage
-          : `${usage}\n${standardsUsage}`,
+          : `${usage}\n${standardsUsage}\n${transformationUsage}`,
     };
   if (filtered[0] === "version") {
     const packagePath = resolve(
@@ -216,6 +222,19 @@ async function run(): Promise<unknown> {
     return verifyPackage(requiredPath(2, "package directory"));
   if (filtered[0] === "project") {
     const base = requiredPath(2, "contract-base path");
+    if (filtered[1] === "preview-transformation")
+      return previewTransformation(
+        base,
+        requiredOption("--environment"),
+        requiredOption("--candidate"),
+      );
+    if (filtered[1] === "apply-transformation")
+      return applyTransformation(
+        base,
+        requiredOption("--environment"),
+        requiredOption("--candidate"),
+        requiredOption("--reviewed-digest"),
+      );
     if (filtered[1] === "inspect-standards") return inspectStandards(base);
     if (filtered[1] === "bind-standard")
       return bindStandard(base, {

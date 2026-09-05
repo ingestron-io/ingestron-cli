@@ -78,6 +78,46 @@ not generated files: successful regeneration replaces owned output. See
 
 ## Configuration and safety boundaries
 
+### Review and apply a candidate from the terminal
+
+The CLI now provides a separate review boundary for a proposed transformation.
+It does not infer a graph from prose. An engineer or future AI integration must
+produce the candidate, retaining source digests, locations and statements. This
+private sample uses the checked-in synthetic design itself as evidence:
+
+```sh
+node examples/create-transformation-proposal.mjs "$sample_root/candidate.json"
+node dist/cli.js project preview-transformation "$sample_root/base" --environment dev --candidate "$sample_root/candidate.json" --output json
+```
+
+Inspect `evidence`, the typed `plan` and `proposedYaml` in the result. The proposed
+YAML shows what approval would write; preview itself does not change the base.
+If the proposal is correct, copy its complete `reviewDigest` into this command:
+
+```sh
+node dist/cli.js project apply-transformation "$sample_root/base" --environment dev --candidate "$sample_root/candidate.json" --reviewed-digest '<sha256:review-digest>' --output json
+```
+
+This is an explicit local source approval, not deployment authorisation. It
+replaces the selected contract's transformation and stores evidence under
+`x-ingestron-transformation-evidence`, preserving other contract attributes.
+Validate, regenerate and obtain fresh delivery approvals afterwards. Preserve
+the preceding Git revision if you need to reverse the source change.
+
+Changes to the candidate or base invalidate the digest. Review again rather than
+retrying with an old digest. An unchanged apply is not silently replayed after a
+source change. A lock prevents cooperating transformation writers from racing;
+other editors must not modify source during apply. This is not an atomic
+transaction across unrelated writers. A leftover `.ingestron-transformation.lock`
+requires checking that no writer is running before manual recovery.
+
+The candidate accepts only its versioned envelope, 1–128 unique evidence
+references, a known target contract and supported typed graph nodes. Evidence
+statements are data, not commands; digests are retained but their authenticity
+and fidelity to original documents are not independently checked. The Studio
+server adapter uses these same commands and has an integration test. Browser
+proposal controls and AI-to-candidate drafting are not connected yet.
+
 Databricks generator `version: 1.1.0` requires an approved transformation on each
 selected output contract. Referenced input contracts remain separate metadata
 objects. Version 1.0.0 retains its legacy generation behaviour.

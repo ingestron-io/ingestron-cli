@@ -2,6 +2,8 @@
 export const compilerProtocol = {
   contract: "ingestron.compiler-protocol/v1",
   commandResults: {
+    "project preview-transformation": "ingestron.transformation-review/v1",
+    "project apply-transformation": "ingestron.transformation-applied/v1",
     "project inspect-standards": "ingestron.standards-catalogue/v1",
     "project bind-standard": "ingestron.standards-binding/v1",
     "project draft-discovery": "ingestron.discovery-draft/v1",
