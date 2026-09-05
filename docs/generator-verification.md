@@ -18,7 +18,7 @@ The catalogue returns `ingestron.generator-catalogue/v1`: ADF 1.0.0, 1.1.0,
 1.2.0 and 1.2.1; Databricks 1.0.0, 1.1.0 and 1.2.0; and Fabric 1.0.0. The
 Databricks 1.1.0 profile adds
 [reviewed full-snapshot transformations](phase-one-transformations.md). Version
-1.2.0 retains that compiler and adds native-evidence job tags and four governed
+1.2.0 retains that compiler and adds native-evidence job tags and five governed
 job parameters for the internal Runner observer. It does not yet generate a
 working incremental publication flow.
 Synapse uses the ADF implementation. These are

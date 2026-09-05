@@ -75,6 +75,7 @@ export function transformationNotebook(
   format: string,
   projectId: string,
   contractId: string,
+  nativeEvidence = false,
 ) {
   const literal = (value: unknown) =>
     `json.loads(${JSON.stringify(JSON.stringify(value))})`;
@@ -86,14 +87,21 @@ spec = ${literal(plan)}
 source_paths = ${literal(sources)}
 project_id = ${literal(projectId)}
 contract_id = ${literal(contractId)}
-for key in ("stage", "silver_table", "gold_table", "plan_digest", "snapshot_id"):
+for key in ("stage", "silver_table", "gold_table", "plan_digest", "snapshot_id"${nativeEvidence ? ', "owner_digest", "reservation_digest", "storage_binding_digest", "source_digest"' : ""}):
     dbutils.widgets.text(key, "")
 stage = dbutils.widgets.get("stage")
 silver_table = dbutils.widgets.get("silver_table")
 gold_table = dbutils.widgets.get("gold_table")
 if not dbutils.widgets.get("snapshot_id") or not dbutils.widgets.get("plan_digest"):
     raise ValueError("Snapshot and generation plan identifiers are required")
-for table in (silver_table, gold_table):
+${
+  nativeEvidence
+    ? `for key in ("owner_digest", "reservation_digest", "storage_binding_digest", "source_digest"):
+    if not dbutils.widgets.get(key):
+        raise ValueError("Native evidence identifiers are required")
+`
+    : ""
+}for table in (silver_table, gold_table):
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*", table):
         raise ValueError("Explicit catalog.schema.table targets are required")
 spark.conf.set("spark.sql.ansi.enabled", "true")
@@ -128,6 +136,18 @@ elif stage == "reconcile":
     counts = {"silver": silver.count(), "gold": gold.count()}
 else:
     raise ValueError("Unsupported stage")
-print(json.dumps({"event": "ingestron.transformation.completed", "stage": stage, "contractId": contract_id, "transformationDigest": spec["digest"], "planDigest": dbutils.widgets.get("plan_digest"), "snapshotId": dbutils.widgets.get("snapshot_id"), "counts": counts, "at": datetime.now(timezone.utc).isoformat()}))
-`;
+${
+  nativeEvidence
+    ? `if stage == "reconcile":
+    history = spark.sql("DESCRIBE HISTORY " + gold_table + " LIMIT 1").collect()
+    if len(history) != 1 or history[0]["version"] is None:
+        raise ValueError("Delta publication version is unavailable")
+    result = {"contract": "ingestron.databricks-publication-result/v1", "planDigest": dbutils.widgets.get("plan_digest"), "ownerDigest": dbutils.widgets.get("owner_digest"), "reservationDigest": dbutils.widgets.get("reservation_digest"), "storageBindingDigest": dbutils.widgets.get("storage_binding_digest"), "sourceDigest": dbutils.widgets.get("source_digest"), "table": gold_table, "deltaVersion": str(history[0]["version"]), "checks": [{"id": "silver-gold-row-count", "expected": counts["silver"], "actual": counts["gold"]}]}
+    dbutils.notebook.exit(json.dumps(result, separators=(",", ":")))
+else:
+    print(json.dumps({"event": "ingestron.transformation.completed", "stage": stage, "contractId": contract_id, "transformationDigest": spec["digest"], "planDigest": dbutils.widgets.get("plan_digest"), "snapshotId": dbutils.widgets.get("snapshot_id"), "counts": counts, "at": datetime.now(timezone.utc).isoformat()}))
+`
+    : `print(json.dumps({"event": "ingestron.transformation.completed", "stage": stage, "contractId": contract_id, "transformationDigest": spec["digest"], "planDigest": dbutils.widgets.get("plan_digest"), "snapshotId": dbutils.widgets.get("snapshot_id"), "counts": counts, "at": datetime.now(timezone.utc).isoformat()}))
+`
+}`;
 }

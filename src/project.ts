@@ -1658,6 +1658,7 @@ async function renderGeneration(
             handoffFormat,
             project.project.id,
             id,
+            nativeEvidence,
           ),
         );
         await writeJson(
@@ -1665,6 +1666,30 @@ async function renderGeneration(
           asset.transformation,
         );
         files.push(`contracts/${id}.transformation.json`);
+      }
+      if (nativeEvidence) {
+        const sourceDigest = digest(
+          await readFile(join(sourceDirectory, `${id}.py`), "utf8"),
+        );
+        const generatedJob = resource.resources.jobs[name] as {
+          tags: Record<string, string>;
+          parameters: Array<{ name: string; default: string }>;
+          tasks: Array<{
+            notebook_task: { base_parameters: Record<string, string> };
+          }>;
+        };
+        generatedJob.tags.source_digest = sourceDigest;
+        generatedJob.parameters.push({
+          name: "source_digest",
+          default: sourceDigest,
+        });
+        for (const task of generatedJob.tasks)
+          task.notebook_task.base_parameters.source_digest =
+            "{{job.parameters.source_digest}}";
+        await writeFile(
+          join(resourceDirectory, `${id}.job.yml`),
+          YAML.stringify(resource),
+        );
       }
       await writeFile(
         join(root, "contracts", `${id}.yaml`),

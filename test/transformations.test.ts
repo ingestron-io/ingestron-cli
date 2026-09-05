@@ -160,11 +160,25 @@ test("Databricks 1.1 generation retains transformation and uses value-aware reco
       "owner_digest",
       "reservation_digest",
       "storage_binding_digest",
+      "source_digest",
     ],
   );
   assert.equal(
     evidenceResource.tasks[3].notebook_task.base_parameters.reservation_digest,
     "{{job.parameters.reservation_digest}}",
+  );
+  const evidenceNotebook = await readFile(
+    join(evidenceOutput, "src/orders.py"),
+    "utf8",
+  );
+  assert.equal(
+    evidenceResource.tags.source_digest,
+    `sha256:${createHash("sha256").update(evidenceNotebook).digest("hex")}`,
+  );
+  assert.match(evidenceNotebook, /DESCRIBE HISTORY/);
+  assert.match(
+    evidenceNotebook,
+    /ingestron\.databricks-publication-result\/v1/,
   );
   order.transformation.review.status = "pending";
   await writeFile(orderPath, YAML.stringify(order));

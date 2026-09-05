@@ -188,14 +188,18 @@ remain separate metadata objects. Version 1.0.0 retains its legacy generation
 behaviour.
 
 Version 1.2.0 adds the contract-owner digest to the generated job tags and declares
-`plan_digest`, `owner_digest`, `reservation_digest` and
-`storage_binding_digest` as job-level parameters. Tasks receive dynamic references
-to these values. A customer-side invocation must replace the two reservation
+plan, owner, reservation, storage-binding and exact generated-source digests as
+job-level parameters. Tasks receive dynamic references to these values. A
+customer-side invocation must replace the two reservation
 placeholders with the active reviewed batch values; they are identifiers, not
 secrets. This makes the run observable by Runner's internal exact-run verifier,
 but does not make the existing full-snapshot notebook incremental or produce an
-authoritative Delta publication manifest. Do not select 1.2.0 as an end-to-end
-incremental profile yet.
+authoritative persisted publication manifest. During `reconcile`, the generated
+notebook returns a bounded result with the target table, latest observed Delta
+history version and the successful silver/gold row-count check. Runner validates
+that result against the exact job run, but does not yet independently attest the
+deployed notebook bytes or query/pin the Delta version. Do not select 1.2.0 as an
+end-to-end incremental profile yet.
 
 - `review.requirements` contains references to reviewed evidence. These strings
   are required but are not independently resolved or authenticated by the compiler.
