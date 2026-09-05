@@ -35,6 +35,7 @@
     "bundle:azure:import": "node scripts/import-azure-bundles.mjs",
     "release:candidate": "pnpm bundle:build && pnpm build && node scripts/build-release.mjs",
     "test": "node --import tsx --test test/*.test.ts",
+    "test:transformations:spark": "node --import tsx scripts/test-transformations-spark.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "secrets:check": "node scripts/scan-secrets.mjs",
     "validate": "pnpm bundle:build && pnpm format:check && pnpm typecheck && pnpm test && pnpm build && pnpm release:candidate && pnpm secrets:check"

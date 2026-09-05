@@ -9,7 +9,7 @@ const builtins = [
   },
   {
     implementation: "databricks",
-    versions: ["1.0.0"],
+    versions: ["1.0.0", "1.1.0"],
     targets: ["databricks"],
   },
   { implementation: "fabric", versions: ["1.0.0"], targets: ["fabric"] },

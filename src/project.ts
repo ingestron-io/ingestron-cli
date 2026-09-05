@@ -26,6 +26,11 @@ import { compilerProtocol } from "./compiler-protocol.js";
 import { assertReleaseGenerator } from "./standards-release.js";
 import { requireBuiltinGenerator } from "./generator-catalogue.js";
 import {
+  compileTransformation,
+  type TransformationPlan,
+} from "./transformations.js";
+import { transformationNotebook } from "./transformation-runtime.js";
+import {
   assertDeliverySelection,
   resolveDeliveryStandards,
   type DeliveryStandards,
@@ -105,6 +110,7 @@ export type GenerationPlan = {
   contracts: string[];
   assets: Array<{
     assetId: string;
+    transformation?: TransformationPlan;
     source: Record<string, unknown>;
     target: {
       name: string;
@@ -648,6 +654,19 @@ export async function resolveProject(
     }
   }
   for (const [id, contract] of Object.entries(contracts)) {
+    if (contract.transformation !== undefined) {
+      try {
+        compileTransformation(contract.transformation, contracts, id);
+      } catch (error) {
+        if (!(error instanceof CliError)) throw error;
+        findings.push({
+          severity: "error",
+          code: error.code,
+          message: error.message,
+          path: id,
+        });
+      }
+    }
     if (isRecord(contract.review) && contract.review.status === "required")
       findings.push({
         severity: "warning",
@@ -790,6 +809,16 @@ export async function planGeneration(
     version,
   );
   const products = stringArray(config.products, Object.keys(project.products));
+  if (
+    isRecord(config.handoff) &&
+    config.handoff.snapshotId !== undefined &&
+    (typeof config.handoff.snapshotId !== "string" ||
+      !/^[A-Za-z0-9_-]{1,128}$/.test(config.handoff.snapshotId))
+  )
+    throw new CliError(
+      "GENERATOR_INVALID",
+      "handoff.snapshotId must be a safe explicit snapshot identifier",
+    );
   const contracts = stringArray(
     config.contracts,
     Object.keys(project.contracts),
@@ -844,11 +873,60 @@ export async function planGeneration(
   }
   const assets = contracts.map((id) => {
     const contract = project.contracts[id]!;
+    const transformation =
+      implementation === "databricks"
+        ? compileTransformation(contract.transformation, project.contracts, id)
+        : undefined;
+    if (contract.transformation !== undefined && implementation === "fabric")
+      throw new CliError(
+        "TRANSFORMATION_UNSUPPORTED",
+        "Typed transformations are implemented for Databricks only; ADF is the landing bridge",
+      );
+    if (transformation && version !== "1.1.0")
+      throw new CliError(
+        "TRANSFORMATION_UNSUPPORTED",
+        "Typed transformations require Databricks generator 1.1.0",
+      );
+    if (
+      implementation === "databricks" &&
+      version === "1.1.0" &&
+      !transformation
+    )
+      throw new CliError(
+        "TRANSFORMATION_INVALID",
+        `Databricks 1.1.0 requires an explicit reviewed transformation for ${id}`,
+      );
+    if (transformation) {
+      const handoff = isRecord(config.handoff) ? config.handoff : {};
+      const target = isRecord(config.target) ? config.target : {};
+      if (
+        handoff.immutable !== true ||
+        typeof handoff.snapshotId !== "string" ||
+        !/^[A-Za-z0-9_-]{1,128}$/.test(handoff.snapshotId) ||
+        typeof handoff.bronzeRootPath !== "string" ||
+        !handoff.bronzeRootPath ||
+        handoff.bronzeRootPath.includes("__BIND")
+      )
+        throw new CliError(
+          "TRANSFORMATION_INVALID",
+          "Typed generation requires an explicitly immutable snapshotId and bronzeRootPath handoff",
+        );
+      for (const key of ["catalog", "schema"])
+        if (
+          typeof target[key] !== "string" ||
+          !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(String(target[key]))
+        )
+          throw new CliError(
+            "TRANSFORMATION_INVALID",
+            `Typed generation requires an explicit target.${key}`,
+          );
+    }
     const targetConfiguration = isRecord(contract.target)
       ? contract.target
       : {};
     return {
       assetId: id,
+      ...(transformation ? { transformation } : {}),
       source: isRecord(contract.source) ? contract.source : {},
       target: {
         name: assetName(contract, id),
@@ -1311,7 +1389,11 @@ async function renderGeneration(
                   location: {
                     type: "AzureBlobFSLocation",
                     fileSystem: "bronze",
-                    folderPath: String(asset.target.name),
+                    folderPath:
+                      isRecord(generatorConfig.handoff) &&
+                      typeof generatorConfig.handoff.snapshotId === "string"
+                        ? `${generatorConfig.handoff.snapshotId}/${asset.target.name}`
+                        : String(asset.target.name),
                   },
                   compressionCodec: "snappy",
                 }
@@ -1394,9 +1476,18 @@ async function renderGeneration(
         typeof generatorHandoff.bronzeRootPath === "string"
           ? generatorHandoff.bronzeRootPath.replace(/\/$/, "")
           : "__BIND_BRONZE_ROOT_PATH__";
-      const bronzePath = `${bronzeRootPath}/${asset.target.name}`;
-      const silverTable = `${asset.target.name}_silver`;
-      const goldTable = `${asset.target.name}_gold`;
+      const snapshot = asset.transformation
+        ? `/${generatorHandoff.snapshotId}`
+        : "";
+      const bronzePath = `${bronzeRootPath}${snapshot}/${asset.target.name}`;
+      const typedTarget = isRecord(generatorConfig.target)
+        ? generatorConfig.target
+        : {};
+      const namespace = asset.transformation
+        ? `${typedTarget.catalog}.${typedTarget.schema}.`
+        : "";
+      const silverTable = `${namespace}${asset.target.name}_silver`;
+      const goldTable = `${namespace}${asset.target.name}_gold`;
       const contractSchema = isRecord(project.contracts[id]!.schema)
         ? project.contracts[id]!.schema
         : {};
@@ -1413,6 +1504,9 @@ async function renderGeneration(
         bronze_path: bronzePath,
         silver_table: silverTable,
         gold_table: goldTable,
+        ...(asset.transformation
+          ? { snapshot_id: String(generatorHandoff.snapshotId) }
+          : {}),
       };
       const resource = {
         resources: {
@@ -1468,11 +1562,16 @@ async function renderGeneration(
                   task_key: "reconcile",
                   depends_on: [{ task_key: "publish_gold" }],
                   notebook_task: {
-                    notebook_path: "../src/reconcile.py",
+                    notebook_path: asset.transformation
+                      ? `../src/${id}.py`
+                      : "../src/reconcile.py",
                     base_parameters: {
                       asset_id: id,
                       bronze_path: bronzePath,
                       gold_table: goldTable,
+                      ...(asset.transformation
+                        ? { ...taskParameters, stage: "reconcile" }
+                        : {}),
                     },
                   },
                   job_cluster_key: "__BIND_JOB_CLUSTER__",
@@ -1501,6 +1600,29 @@ async function renderGeneration(
         `# Generated by Ingestron from ${plan.standards.map((item) => `${item.id}@${item.version}`).join(", ")}.\n# Review the generation plan before customer-side deployment.\nimport json\nfrom datetime import datetime, timezone\n\nfor name in ("stage", "asset_id", "plan_digest", "handoff_contract", "bronze_path", "silver_table", "gold_table"):\n    dbutils.widgets.text(name, "")\n\nstage = dbutils.widgets.get("stage")\nasset_id = dbutils.widgets.get("asset_id")\nplan_digest = dbutils.widgets.get("plan_digest")\nhandoff_contract = dbutils.widgets.get("handoff_contract")\nbronze_path = dbutils.widgets.get("bronze_path")\nsilver_table = dbutils.widgets.get("silver_table")\ngold_table = dbutils.widgets.get("gold_table")\nif not all((stage, asset_id, plan_digest, handoff_contract, bronze_path, silver_table, gold_table)):\n    raise ValueError("All governed task parameters are required")\nif handoff_contract != ${JSON.stringify(handoffContract)}:\n    raise ValueError("The ingestion handoff contract does not match the selected standards pack")\n\nexpected_columns = ${JSON.stringify(expectedColumns)}\nbronze = spark.read.format(${JSON.stringify(handoffFormat)}).load(bronze_path)\nmissing = sorted(set(expected_columns) - set(bronze.columns))\nif missing:\n    raise ValueError(f"Bronze contract validation failed; missing columns: {missing}")\n\nif stage == "validate_bronze":\n    output_count = bronze.count()\nelif stage == "build_silver":\n    silver = bronze.select(*expected_columns)\n    silver.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable(silver_table)\n    output_count = spark.table(silver_table).count()\nelif stage == "publish_gold":\n    silver = spark.table(silver_table)\n    silver.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable(gold_table)\n    output_count = spark.table(gold_table).count()\nelse:\n    raise ValueError(f"Unsupported governed stage: {stage}")\n\nprint(json.dumps({"event": "ingestron.asset.stage.completed", "stage": stage, "assetId": asset_id, "planDigest": plan_digest, "rowCount": output_count, "at": datetime.now(timezone.utc).isoformat()}))\n`,
       );
       files.push(`resources/${id}.job.yml`, `src/${id}.py`);
+      if (asset.transformation) {
+        const paths = Object.fromEntries(
+          asset.transformation.sources.map((source) => [
+            source,
+            `${bronzeRootPath}${snapshot}/${assetName(project.contracts[source]!, source)}`,
+          ]),
+        );
+        await writeFile(
+          join(sourceDirectory, `${id}.py`),
+          transformationNotebook(
+            asset.transformation,
+            paths,
+            handoffFormat,
+            project.project.id,
+            id,
+          ),
+        );
+        await writeJson(
+          join(root, "contracts", `${id}.transformation.json`),
+          asset.transformation,
+        );
+        files.push(`contracts/${id}.transformation.json`);
+      }
       await writeFile(
         join(root, "contracts", `${id}.yaml`),
         YAML.stringify(project.contracts[id]),

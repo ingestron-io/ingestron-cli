@@ -15,7 +15,9 @@ node dist/cli.js gen catalogue --output json
 ```
 
 The catalogue returns `ingestron.generator-catalogue/v1`: ADF 1.0.0 and 1.1.0,
-Databricks 1.0.0 and Fabric 1.0.0. Synapse uses the ADF implementation. These are
+Databricks 1.0.0 and 1.1.0, and Fabric 1.0.0. The Databricks 1.1.0 profile adds
+[reviewed full-snapshot transformations](phase-one-transformations.md).
+Synapse uses the ADF implementation. These are
 compatibility profiles implemented by the current CLI, not archived historical
 executables or downloadable plugins. External packages are not supported yet.
 

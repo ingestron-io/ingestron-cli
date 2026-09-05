@@ -1,0 +1,57 @@
+{
+  "contract": "ingestron.transformation/v1",
+  "review": {
+    "status": "approved",
+    "requirements": [
+      "synthetic:completed-orders-by-country",
+      "synthetic:latest-order-revision"
+    ]
+  },
+  "nodes": [
+    { "id": "orders_raw", "op": "source", "contract": "orders" },
+    {
+      "id": "orders_typed",
+      "op": "cast",
+      "input": "orders_raw",
+      "columns": { "amount": "decimal(18,2)", "updated_at": "timestamp" }
+    },
+    {
+      "id": "latest",
+      "op": "deduplicate",
+      "input": "orders_typed",
+      "keys": ["order_id"],
+      "orderBy": [{ "column": "updated_at", "direction": "desc" }]
+    },
+    {
+      "id": "completed",
+      "op": "filter",
+      "input": "latest",
+      "where": { "column": "status", "operator": "eq", "value": "complete" }
+    },
+    { "id": "customers_raw", "op": "source", "contract": "customers" },
+    {
+      "id": "silver",
+      "op": "join",
+      "left": "completed",
+      "right": "customers_raw",
+      "how": "inner",
+      "on": [{ "left": "customer_id", "right": "customer_id" }],
+      "select": [
+        { "side": "left", "column": "order_id", "as": "order_id" },
+        { "side": "left", "column": "amount", "as": "amount" },
+        { "side": "right", "column": "country_code", "as": "country_code" }
+      ]
+    },
+    {
+      "id": "gold",
+      "op": "aggregate",
+      "input": "silver",
+      "groupBy": ["country_code"],
+      "metrics": [
+        { "function": "sum", "column": "amount", "as": "revenue" },
+        { "function": "count", "column": "order_id", "as": "orders" }
+      ]
+    }
+  ],
+  "outputs": { "silver": "silver", "gold": "gold" }
+}
