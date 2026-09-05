@@ -1795,6 +1795,29 @@ async function renderGeneration(
           join(resourceDirectory, `${id}.job.yml`),
           YAML.stringify(resource),
         );
+        if (pinnedConsumer) {
+          const policyDirectory = join(root, "policies");
+          await mkdir(policyDirectory, { recursive: true });
+          await writeJson(join(policyDirectory, `${id}.publication.json`), {
+            contract: "ingestron.phase-one-publication-policy/v1",
+            generator: {
+              implementation: "databricks",
+              version: plan.generator.version,
+            },
+            planDigest: plan.planDigest,
+            ownerDigest,
+            sourceDigest,
+            checks: [
+              {
+                id: "silver-gold-row-count",
+                assertion: "exact-row-count",
+                producerTask: "verify_publication",
+                subject: "pinned-gold",
+              },
+            ],
+          });
+          files.push(`policies/${id}.publication.json`);
+        }
       }
       await writeFile(
         join(root, "contracts", `${id}.yaml`),

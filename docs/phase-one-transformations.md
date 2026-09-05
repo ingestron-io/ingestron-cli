@@ -280,6 +280,15 @@ that version or independently attest execution outside the job. Databricks'
 [task-values guide](https://docs.databricks.com/aws/en/jobs/task-values) document
 the two native mechanisms (checked 2026-09-05).
 
+The same build writes `policies/<contract>.publication.json`. This bounded
+`ingestron.phase-one-publication-policy/v1` document binds the generation plan,
+contract owner, generated notebook source and the `silver-gold-row-count` check.
+Runner verifies the exact policy bytes and derives the required check set from
+them before observing publication. Do not edit the generated policy: its file
+digest is part of `ingestron.lock.yaml`, and any standards change requires a new
+generation review. The initial profile does not accept custom SQL, expressions,
+tolerances or arbitrary check implementations.
+
 - `review.requirements` contains references to reviewed evidence. These strings
   are required but are not independently resolved or authenticated by the compiler.
 - `handoff.snapshotId` names the same landing snapshot in ADF and Databricks.

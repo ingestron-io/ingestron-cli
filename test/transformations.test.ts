@@ -226,6 +226,27 @@ test("Databricks 1.1 generation retains transformation and uses value-aware reco
     pinnedResource.tags.source_digest,
     `sha256:${createHash("sha256").update(pinnedNotebook).digest("hex")}`,
   );
+  const policy = JSON.parse(
+    await readFile(
+      join(pinnedOutput, "policies/orders.publication.json"),
+      "utf8",
+    ),
+  );
+  assert.deepEqual(policy, {
+    contract: "ingestron.phase-one-publication-policy/v1",
+    generator: { implementation: "databricks", version: "1.3.0" },
+    planDigest: pinnedResource.tags.plan_digest,
+    ownerDigest: pinnedResource.tags.owner_digest,
+    sourceDigest: pinnedResource.tags.source_digest,
+    checks: [
+      {
+        id: "silver-gold-row-count",
+        assertion: "exact-row-count",
+        producerTask: "verify_publication",
+        subject: "pinned-gold",
+      },
+    ],
+  });
   order.transformation.review.status = "pending";
   await writeFile(orderPath, YAML.stringify(order));
   await assert.rejects(
