@@ -44,7 +44,7 @@ export async function createPhaseOneBase(
   });
   await write("generators/databricks.yaml", generator);
   const adf = await read("generators/adf.yaml");
-  if (ownerAware) adf.version = "1.2.0";
+  if (ownerAware) adf.version = "1.2.1";
   adf.handoff = { snapshotId: "snapshot_001" };
   await write("generators/adf.yaml", adf);
   // Only these newly created fixture files are removed; existing destinations are rejected above.
@@ -56,6 +56,7 @@ export async function createPhaseOneBase(
       "1.0.0",
       "1.1.0",
       "1.2.0",
+      "1.2.1",
     ];
   standard.compatibility.generators.databricks.versions = ["1.0.0", "1.1.0"];
   await write("standards/platform.yaml", standard);

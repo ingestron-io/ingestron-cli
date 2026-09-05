@@ -1226,7 +1226,7 @@ async function renderGeneration(
     const name = `pl_${asset.target.name}`;
     const ownershipAnnotations =
       plan.generator.implementation === "adf" &&
-      plan.generator.version === "1.2.0"
+      ["1.2.0", "1.2.1"].includes(plan.generator.version)
         ? [
             `ingestron-owner:${digest(JSON.stringify([project.project.id, plan.environment, id])).slice(7)}`,
           ]
@@ -1289,6 +1289,9 @@ async function renderGeneration(
                 secureInput: true,
               },
               typeProperties: {
+                ...(plan.generator.version === "1.2.1"
+                  ? { validateDataConsistency: true }
+                  : {}),
                 source: isRecord(sourceAdf.source)
                   ? sourceAdf.source
                   : { type: "__BIND_SOURCE_TYPE__" },
@@ -1298,7 +1301,9 @@ async function renderGeneration(
                     ? { type: "ParquetSink" }
                     : { type: "__BIND_SINK_TYPE__" },
               },
-              validateDataConsistency: true,
+              ...(plan.generator.version === "1.2.1"
+                ? {}
+                : { validateDataConsistency: true }),
               inputs: [
                 {
                   referenceName: sourceReference,
@@ -1831,7 +1836,7 @@ async function renderGeneration(
   }
   if (
     plan.generator.implementation === "adf" &&
-    plan.generator.version === "1.2.0"
+    ["1.2.0", "1.2.1"].includes(plan.generator.version)
   ) {
     const owners = new Map(
       plan.contracts.map((contractId) => [

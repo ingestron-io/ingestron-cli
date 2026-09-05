@@ -24,6 +24,65 @@ import {
   verifyGeneration,
 } from "../src/project.js";
 
+test("ADF 1.2.1 nests copy consistency correctly for both ADF and Synapse and retains ownership evidence", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "ingestron-copy-consistency-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const base = join(root, "base");
+  await cp("examples/contract-base", base, { recursive: true });
+  const standardPath = join(base, "standards/platform.yaml");
+  const standard = YAML.parse(await readFile(standardPath, "utf8"));
+  standard.compatibility.generators.adf.versions.push("1.2.0", "1.2.1");
+  standard.compatibility.generators.synapse.versions.push("1.2.0", "1.2.1");
+  await writeFile(standardPath, YAML.stringify(standard));
+  for (const generator of ["adf", "synapse"]) {
+    const configPath = join(base, `generators/${generator}.yaml`);
+    const config = YAML.parse(await readFile(configPath, "utf8"));
+    const out = join(root, generator);
+    const emitted = [];
+    for (const version of ["1.2.0", "1.2.1"]) {
+      config.version = version;
+      await writeFile(configPath, YAML.stringify(config));
+      const plan = await buildGeneration(base, "dev", generator, out);
+      const pipeline = JSON.parse(
+        await readFile(
+          join(out, "factory/pipelines/pl_fin_dev_orders.json"),
+          "utf8",
+        ),
+      );
+      const copy = pipeline.properties.activities.find(
+        (activity: { type: string }) => activity.type === "Copy",
+      );
+      assert.equal(
+        copy.typeProperties.validateDataConsistency,
+        version === "1.2.1" ? true : undefined,
+      );
+      assert.equal(
+        Object.hasOwn(copy, "validateDataConsistency"),
+        version === "1.2.0",
+      );
+      assert.equal(copy.policy.secureInput, true);
+      assert.equal(copy.policy.secureOutput, true);
+      assert.equal(pipeline.properties.activities[1].type, "IfCondition");
+      assert.ok(
+        pipeline.properties.annotations.some((value: string) =>
+          value.startsWith("ingestron-owner:"),
+        ),
+      );
+      const ownership = JSON.parse(
+        await readFile(join(out, "resource-ownership.json"), "utf8"),
+      );
+      assert.ok(ownership.resources.length > 0);
+      assert.equal((await verifyGeneration(out)).valid, true);
+      emitted.push(plan.planDigest);
+    }
+    assert.notEqual(
+      emitted[0],
+      emitted[1],
+      "an explicit version upgrade changes the reviewed plan digest",
+    );
+  }
+});
+
 test("ADF 1.2 emits stable contract ownership while legacy profiles remain unchanged", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "ingestron-owner-profile-"));
   t.after(() => rm(root, { recursive: true, force: true }));

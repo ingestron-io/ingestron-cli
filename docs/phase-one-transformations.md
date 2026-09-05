@@ -45,7 +45,7 @@ node examples/create-phase-one-base.mjs "$sample_root/owner-aware-base" --owner-
 node dist/cli.js gen build "$sample_root/owner-aware-base" --environment dev --generator adf --out "$sample_root/owner-aware-output" --output json
 ```
 
-This selects ADF generator `1.2.0` and updates the sample's standards compatibility
+This selects ADF generator `1.2.1` and updates the sample's standards compatibility
 declaration and pins. The output includes `resource-ownership.json`, covered by
 the complete generated-file inventory. It maps datasets, pipelines and triggers
 to project/environment/contract owners and selected product consumers. The same
@@ -53,6 +53,17 @@ ADF profile supports Synapse; Databricks ownership is not yet implemented.
 Existing bases stay on their explicitly selected versions. In a real base, review
 and version the relevant standards compatibility change before changing a
 generator version; do not bypass an incompatible pack.
+
+Version `1.2.1` also fixes the placement of Copy activity's
+`validateDataConsistency` under `typeProperties`, as required by
+[Azure's Copy activity configuration](https://learn.microsoft.com/en-us/azure/data-factory/copy-activity-log)
+(checked 2026-09-05). Versions `1.0.0`–`1.2.0` retain their historical rendering,
+which puts this setting at the wrong level; do not rely on those versions to
+enable native copy consistency verification. Their separately generated count
+comparison is not a substitute for native consistency verification. Regenerate
+with the reviewed `1.2.1` compatibility pin and inspect the output diff before
+any deployment. This private correction has structural tests, not live Azure
+acceptance, and does not enable incremental ingestion.
 
 Runner's `docs/shared-resource-ownership.md` explains preview, inventory, leases
 and reference-only retirement. This local source build neither deploys resources
