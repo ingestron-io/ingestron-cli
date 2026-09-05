@@ -8,7 +8,7 @@ import { createLayeredBase } from "./create-layered-base.mjs";
 
 export async function createPhaseOneBase(
   destination,
-  { ownerAware = false } = {},
+  { ownerAware = false, nativeEvidence = false } = {},
 ) {
   const root = await createLayeredBase(destination);
   const read = async (path) =>
@@ -31,7 +31,7 @@ export async function createPhaseOneBase(
   );
   await write("contracts/orders.yaml", order);
   const generator = await read("generators/databricks.yaml");
-  generator.version = "1.1.0";
+  generator.version = nativeEvidence ? "1.2.0" : "1.1.0";
   generator.contracts = ["orders"];
   Object.assign(generator.target, {
     catalog: "synthetic",
@@ -58,7 +58,11 @@ export async function createPhaseOneBase(
       "1.2.0",
       "1.2.1",
     ];
-  standard.compatibility.generators.databricks.versions = ["1.0.0", "1.1.0"];
+  standard.compatibility.generators.databricks.versions = [
+    "1.0.0",
+    "1.1.0",
+    ...(nativeEvidence ? ["1.2.0"] : []),
+  ];
   await write("standards/platform.yaml", standard);
   const product = await read("products/customer-orders.yaml");
   product.delivery.elt.digest = `sha256:${createHash("sha256")
@@ -74,11 +78,12 @@ if (
 ) {
   if (!process.argv[2])
     throw new Error(
-      "Usage: node examples/create-phase-one-base.mjs <new-directory> [--owner-aware]",
+      "Usage: node examples/create-phase-one-base.mjs <new-directory> [--owner-aware] [--native-evidence]",
     );
   console.log(
     await createPhaseOneBase(process.argv[2], {
       ownerAware: process.argv.includes("--owner-aware"),
+      nativeEvidence: process.argv.includes("--native-evidence"),
     }),
   );
 }
