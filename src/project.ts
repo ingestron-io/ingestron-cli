@@ -956,6 +956,91 @@ export async function planGeneration(
           "ADF 1.3.0 requires schedule.enabled: false; a checkpoint-aware Runner must supply the reserved interval",
         );
     }
+    if (implementation === "adf" && version === "1.4.0") {
+      const source = isRecord(contract.source) ? contract.source : {};
+      const incremental = isRecord(source.incremental)
+        ? source.incremental
+        : undefined;
+      const sourceAdf = isRecord(source.adf) ? source.adf : {};
+      const target = isRecord(contract.target) ? contract.target : {};
+      const targetAdf = isRecord(target.adf) ? target.adf : {};
+      const schema = isRecord(contract.schema) ? contract.schema : {};
+      const fields = Array.isArray(schema.fields) ? schema.fields : [];
+      const timestampField = fields.find(
+        (field) =>
+          isRecord(field) &&
+          incremental &&
+          field.name === incremental.timestampColumn,
+      );
+      const tieBreakerField = fields.find(
+        (field) =>
+          isRecord(field) &&
+          incremental &&
+          field.name === incremental.tieBreakerColumn,
+      );
+      const deletes =
+        incremental && isRecord(incremental.deletes)
+          ? incremental.deletes
+          : undefined;
+      const deleteField = fields.find(
+        (field) => isRecord(field) && deletes && field.name === deletes.column,
+      );
+      const safeIdentifier = (value: unknown) =>
+        typeof value === "string" &&
+        /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(value);
+      if (
+        !incremental ||
+        Object.keys(incremental).some(
+          (key) =>
+            ![
+              "connector",
+              "type",
+              "timestampColumn",
+              "tieBreakerColumn",
+              "tieBreakerGuarantee",
+              "updateGuarantee",
+              "deletes",
+            ].includes(key),
+        ) ||
+        incremental.type !== "updated-at-int64" ||
+        incremental.connector !== "azure-sql" ||
+        incremental.updateGuarantee !== "updated-at-advances-on-every-change" ||
+        incremental.tieBreakerGuarantee !==
+          "stable-unique-non-negative-int64" ||
+        !safeIdentifier(incremental.timestampColumn) ||
+        !safeIdentifier(incremental.tieBreakerColumn) ||
+        incremental.timestampColumn === incremental.tieBreakerColumn ||
+        !isRecord(timestampField) ||
+        timestampField.type !== "timestamp" ||
+        timestampField.required !== true ||
+        !isRecord(tieBreakerField) ||
+        !["long", "int64"].includes(String(tieBreakerField.type)) ||
+        tieBreakerField.required !== true ||
+        !deletes ||
+        Object.keys(deletes).some((key) => !["mode", "column"].includes(key)) ||
+        !["unsupported", "soft-delete"].includes(String(deletes.mode)) ||
+        (deletes.mode === "unsupported" && deletes.column !== undefined) ||
+        (deletes.mode === "soft-delete" &&
+          (!safeIdentifier(deletes.column) ||
+            !isRecord(deleteField) ||
+            deleteField.type !== "boolean" ||
+            deleteField.required !== true)) ||
+        !safeIdentifier(source.schema) ||
+        !safeIdentifier(source.dataset) ||
+        sourceAdf.source !== undefined ||
+        targetAdf.datasetReference !== undefined
+      )
+        throw new CliError(
+          "COMPOSITE_INCREMENTAL_SOURCE_INVALID",
+          "ADF 1.4.0 requires a generated Azure SQL source with required timestamp/int64 cursor fields, an update guarantee and explicit delete mode",
+        );
+      const schedule = isRecord(config.schedule) ? config.schedule : undefined;
+      if (schedule?.enabled !== false)
+        throw new CliError(
+          "INCREMENTAL_SCHEDULE_UNSAFE",
+          "ADF 1.4.0 requires schedule.enabled: false; a checkpoint-aware Runner must supply the reserved composite interval",
+        );
+    }
     const targetConfiguration = isRecord(contract.target)
       ? contract.target
       : {};
@@ -1270,13 +1355,16 @@ async function renderGeneration(
     const name = `pl_${asset.target.name}`;
     const ownershipAnnotations =
       plan.generator.implementation === "adf" &&
-      ["1.2.0", "1.2.1", "1.3.0"].includes(plan.generator.version)
+      ["1.2.0", "1.2.1", "1.3.0", "1.4.0"].includes(plan.generator.version)
         ? [
             `ingestron-owner:${digest(JSON.stringify([project.project.id, plan.environment, id])).slice(7)}`,
           ]
         : [];
     if (plan.generator.implementation === "adf") {
-      const nativeIncremental = plan.generator.version === "1.3.0";
+      const nativeIncremental = ["1.3.0", "1.4.0"].includes(
+        plan.generator.version,
+      );
+      const compositeIncremental = plan.generator.version === "1.4.0";
       const pipelineDirectory = join(root, "factory", "pipelines");
       const datasetDirectory = join(root, "factory", "datasets");
       await mkdir(pipelineDirectory, { recursive: true });
@@ -1316,8 +1404,17 @@ async function renderGeneration(
         properties: {
           description: `Generated orchestration for ${id}`,
           parameters: {
-            watermark_from: { type: "String" },
-            watermark_to: { type: "String" },
+            ...(compositeIncremental
+              ? {
+                  cursor_from_timestamp: { type: "String" },
+                  cursor_from_tie_breaker: { type: "String" },
+                  cursor_to_timestamp: { type: "String" },
+                  cursor_to_tie_breaker: { type: "String" },
+                }
+              : {
+                  watermark_from: { type: "String" },
+                  watermark_to: { type: "String" },
+                }),
             ...(nativeIncremental
               ? {
                   reservation_digest: { type: "String" },
@@ -1343,7 +1440,7 @@ async function renderGeneration(
                 secureInput: true,
               },
               typeProperties: {
-                ...(["1.2.1", "1.3.0"].includes(plan.generator.version)
+                ...(["1.2.1", "1.3.0", "1.4.0"].includes(plan.generator.version)
                   ? { validateDataConsistency: true }
                   : {}),
                 source: nativeIncremental
@@ -1351,7 +1448,9 @@ async function renderGeneration(
                       type: "AzureSqlSource",
                       sqlReaderQuery: {
                         type: "Expression",
-                        value: `@concat('SELECT * FROM [${String(asset.source.schema)}].[${String(asset.source.dataset)}] WHERE [${String(incremental!.column)}] > ', pipeline().parameters.watermark_from, ' AND [${String(incremental!.column)}] <= ', pipeline().parameters.watermark_to)`,
+                        value: compositeIncremental
+                          ? `@concat('SELECT * FROM [${String(asset.source.schema)}].[${String(asset.source.dataset)}] WHERE ([${String(incremental!.timestampColumn)}] > CONVERT(datetime2(7), ''', pipeline().parameters.cursor_from_timestamp, ''', 127) OR ([${String(incremental!.timestampColumn)}] = CONVERT(datetime2(7), ''', pipeline().parameters.cursor_from_timestamp, ''', 127) AND [${String(incremental!.tieBreakerColumn)}] > ', pipeline().parameters.cursor_from_tie_breaker, ')) AND ([${String(incremental!.timestampColumn)}] < CONVERT(datetime2(7), ''', pipeline().parameters.cursor_to_timestamp, ''', 127) OR ([${String(incremental!.timestampColumn)}] = CONVERT(datetime2(7), ''', pipeline().parameters.cursor_to_timestamp, ''', 127) AND [${String(incremental!.tieBreakerColumn)}] <= ', pipeline().parameters.cursor_to_tie_breaker, ')) ORDER BY [${String(incremental!.timestampColumn)}], [${String(incremental!.tieBreakerColumn)}]')`
+                          : `@concat('SELECT * FROM [${String(asset.source.schema)}].[${String(asset.source.dataset)}] WHERE [${String(incremental!.column)}] > ', pipeline().parameters.watermark_from, ' AND [${String(incremental!.column)}] <= ', pipeline().parameters.watermark_to)`,
                       },
                     }
                   : isRecord(sourceAdf.source)
@@ -1363,7 +1462,7 @@ async function renderGeneration(
                     ? { type: "ParquetSink" }
                     : { type: "__BIND_SINK_TYPE__" },
               },
-              ...(["1.2.1", "1.3.0"].includes(plan.generator.version)
+              ...(["1.2.1", "1.3.0", "1.4.0"].includes(plan.generator.version)
                 ? {}
                 : { validateDataConsistency: true }),
               inputs: [
@@ -2022,7 +2121,7 @@ async function renderGeneration(
   }
   if (
     plan.generator.implementation === "adf" &&
-    ["1.2.0", "1.2.1", "1.3.0"].includes(plan.generator.version)
+    ["1.2.0", "1.2.1", "1.3.0", "1.4.0"].includes(plan.generator.version)
   ) {
     const owners = new Map(
       plan.contracts.map((contractId) => [

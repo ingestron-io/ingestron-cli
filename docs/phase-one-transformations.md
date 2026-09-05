@@ -136,6 +136,86 @@ and reference-only retirement. This local source build neither deploys resources
 nor proves concurrent native customer execution. A single authoritative Runner
 state per shared foundation is currently required.
 
+### Capture inserts and updates with a deterministic cursor
+
+ADF generator `1.4.0` is the private compiler profile for an Azure SQL source
+where existing rows can change. Use it only when the source can guarantee that
+every material insert or update advances a required `datetime2(7)` column and a
+second required, stable, unique non-negative int64 column breaks timestamp ties.
+
+```yaml
+source:
+  platform: adf
+  schema: dbo
+  dataset: orders
+  incremental:
+    connector: azure-sql
+    type: updated-at-int64
+    timestampColumn: updated_at
+    tieBreakerColumn: order_sequence
+    tieBreakerGuarantee: stable-unique-non-negative-int64
+    updateGuarantee: updated-at-advances-on-every-change
+    deletes:
+      mode: soft-delete
+      column: is_deleted
+schema:
+  fields:
+    - name: updated_at
+      type: timestamp
+      required: true
+    - name: order_sequence
+      type: long
+      required: true
+    - name: is_deleted
+      type: boolean
+      required: true
+```
+
+Select exactly `version: 1.4.0` and keep `schedule.enabled: false`. The selected
+standards compatibility declaration must permit that version. For sources with
+no delete feed, use `deletes: { mode: unsupported }`; this records the limitation
+instead of implying that missing rows will be removed downstream.
+
+The generated pipeline requires four cursor parameters plus the existing plan,
+reservation and storage bindings. Its query applies a lower-exclusive and
+upper-inclusive lexicographic interval:
+
+```sql
+WHERE (
+  updated_at > @cursor_from_timestamp
+  OR (updated_at = @cursor_from_timestamp AND order_sequence > @cursor_from_key)
+)
+AND (
+  updated_at < @cursor_to_timestamp
+  OR (updated_at = @cursor_to_timestamp AND order_sequence <= @cursor_to_key)
+)
+ORDER BY updated_at, order_sequence
+```
+
+The actual ADF expression uses generated bracketed identifiers, converts only
+Runner-validated canonical UTC values to `datetime2(7)`, and keeps int64 values
+as strings until SQL evaluates them. The compiler rejects custom source query
+fragments, customer-owned target datasets, unsafe identifiers, optional or
+incorrectly typed cursor fields, undeclared update guarantees, invalid
+soft-delete fields and enabled schedules. Generated output remains locked and
+reservation-scoped.
+
+The compiler alone does not make this an executable phase-one path. Runner has
+the corresponding conditional composite checkpoint, but ADF invocation,
+observation and staged execution do not yet accept these four parameters. Do not
+deploy or invoke `1.4.0` manually. Late commits whose `updated_at` falls behind
+the committed cursor are not captured, and physical deletes require CDC rather
+than this profile. Tests are structural and synthetic; there is no live Azure
+acceptance.
+
+Generate the isolated composite fixture for code review without deploying it:
+
+```sh
+node examples/create-phase-one-base.mjs "$sample_root/composite-base" --composite-evidence
+node dist/cli.js gen build "$sample_root/composite-base" --environment dev --generator adf --out "$sample_root/composite-adf" --output json
+node dist/cli.js gen verify "$sample_root/composite-adf" --output json
+```
+
 ### Start the local preview
 
 From the Studio checkout, start the disposable local preview:

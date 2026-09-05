@@ -55,6 +55,41 @@ async function configureNativeIncrementalAdf(base: string) {
   await writeFile(standardPath, YAML.stringify(standard));
 }
 
+async function configureCompositeIncrementalAdf(base: string) {
+  const contractPath = join(base, "contracts/orders.yaml");
+  const contract = YAML.parse(await readFile(contractPath, "utf8"));
+  contract.source = {
+    platform: "adf",
+    schema: "dbo",
+    dataset: "orders",
+    incremental: {
+      connector: "azure-sql",
+      type: "updated-at-int64",
+      timestampColumn: "updated_at",
+      tieBreakerColumn: "order_sequence",
+      tieBreakerGuarantee: "stable-unique-non-negative-int64",
+      updateGuarantee: "updated-at-advances-on-every-change",
+      deletes: { mode: "soft-delete", column: "is_deleted" },
+    },
+  };
+  contract.schema.fields.push(
+    { name: "updated_at", type: "timestamp", required: true },
+    { name: "order_sequence", type: "long", required: true },
+    { name: "is_deleted", type: "boolean", required: true },
+  );
+  await writeFile(contractPath, YAML.stringify(contract));
+  const configPath = join(base, "generators/adf.yaml");
+  const config = YAML.parse(await readFile(configPath, "utf8"));
+  config.version = "1.4.0";
+  config.contracts = ["orders"];
+  config.schedule = { enabled: false };
+  await writeFile(configPath, YAML.stringify(config));
+  const standardPath = join(base, "standards/platform.yaml");
+  const standard = YAML.parse(await readFile(standardPath, "utf8"));
+  standard.compatibility.generators.adf.versions.push("1.4.0");
+  await writeFile(standardPath, YAML.stringify(standard));
+}
+
 test("ADF 1.3 generates a reservation-scoped Azure SQL source window", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "ingestron-adf-window-"));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -172,6 +207,96 @@ test("ADF 1.3 rejects unsafe incremental source configurations before rendering"
     planGeneration(base, "dev", "adf"),
     /checkpoint-aware Runner must supply the reserved interval/,
   );
+});
+
+test("ADF 1.4 generates an exact composite update window", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "ingestron-adf-composite-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const base = join(root, "base");
+  const output = join(root, "out");
+  await cp("examples/contract-base", base, { recursive: true });
+  await configureCompositeIncrementalAdf(base);
+  await buildGeneration(base, "dev", "adf", output);
+  const pipeline = JSON.parse(
+    await readFile(
+      join(output, "factory/pipelines/pl_fin_dev_orders.json"),
+      "utf8",
+    ),
+  );
+  assert.deepEqual(Object.keys(pipeline.properties.parameters).sort(), [
+    "cursor_from_tie_breaker",
+    "cursor_from_timestamp",
+    "cursor_to_tie_breaker",
+    "cursor_to_timestamp",
+    "handoff_contract",
+    "plan_digest",
+    "reservation_digest",
+    "storage_binding_digest",
+  ]);
+  const copy = pipeline.properties.activities.find(
+    (activity: { type: string }) => activity.type === "Copy",
+  );
+  assert.equal(copy.typeProperties.validateDataConsistency, true);
+  assert.equal(
+    copy.typeProperties.source.sqlReaderQuery.value,
+    "@concat('SELECT * FROM [dbo].[orders] WHERE ([updated_at] > CONVERT(datetime2(7), ''', pipeline().parameters.cursor_from_timestamp, ''', 127) OR ([updated_at] = CONVERT(datetime2(7), ''', pipeline().parameters.cursor_from_timestamp, ''', 127) AND [order_sequence] > ', pipeline().parameters.cursor_from_tie_breaker, ')) AND ([updated_at] < CONVERT(datetime2(7), ''', pipeline().parameters.cursor_to_timestamp, ''', 127) OR ([updated_at] = CONVERT(datetime2(7), ''', pipeline().parameters.cursor_to_timestamp, ''', 127) AND [order_sequence] <= ', pipeline().parameters.cursor_to_tie_breaker, ')) ORDER BY [updated_at], [order_sequence]')",
+  );
+  assert.equal(
+    copy.outputs[0].parameters.batch_path.value,
+    "@concat('batches/', replace(pipeline().parameters.reservation_digest, 'sha256:', ''), '/data')",
+  );
+  await assert.rejects(
+    readFile(join(output, "factory/triggers/trg_fin_dev_orders.json")),
+    /ENOENT/,
+  );
+  assert.equal((await verifyGeneration(output)).valid, true);
+});
+
+test("ADF 1.4 rejects incomplete composite source guarantees", async (t) => {
+  const root = await mkdtemp(
+    join(tmpdir(), "ingestron-adf-composite-invalid-"),
+  );
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const base = join(root, "base");
+  await cp("examples/contract-base", base, { recursive: true });
+  await configureCompositeIncrementalAdf(base);
+  const contractPath = join(base, "contracts/orders.yaml");
+  const original = await readFile(contractPath, "utf8");
+  for (const alter of [
+    (contract: Record<string, any>) => {
+      contract.source.incremental.updateGuarantee = "best-effort";
+    },
+    (contract: Record<string, any>) => {
+      contract.source.incremental.tieBreakerColumn = "updated_at";
+    },
+    (contract: Record<string, any>) => {
+      contract.source.incremental.tieBreakerGuarantee = "unique-ish";
+    },
+    (contract: Record<string, any>) => {
+      contract.schema.fields.find(
+        (field: { name: string }) => field.name === "updated_at",
+      ).required = false;
+    },
+    (contract: Record<string, any>) => {
+      contract.source.incremental.deletes = {
+        mode: "soft-delete",
+        column: "missing",
+      };
+    },
+    (contract: Record<string, any>) => {
+      contract.source.adf = {
+        source: { type: "AzureSqlSource", sqlReaderQuery: "SELECT secret" },
+      };
+    },
+  ]) {
+    const contract = YAML.parse(original);
+    alter(contract);
+    await writeFile(contractPath, YAML.stringify(contract));
+    await assert.rejects(
+      planGeneration(base, "dev", "adf"),
+      /ADF 1\.4\.0 requires a generated Azure SQL source/,
+    );
+  }
 });
 
 test("ADF 1.2.1 nests copy consistency correctly for both ADF and Synapse and retains ownership evidence", async (t) => {

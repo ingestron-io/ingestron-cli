@@ -8,8 +8,13 @@ import { createLayeredBase } from "./create-layered-base.mjs";
 
 export async function createPhaseOneBase(
   destination,
-  { ownerAware = false, nativeEvidence = false } = {},
+  {
+    ownerAware = false,
+    nativeEvidence = false,
+    compositeEvidence = false,
+  } = {},
 ) {
+  nativeEvidence ||= compositeEvidence;
   const root = await createLayeredBase(destination);
   const read = async (path) =>
     YAML.parse(await readFile(resolve(root, path), "utf8"));
@@ -24,21 +29,37 @@ export async function createPhaseOneBase(
     "updated_at",
   ].map((name) => ({ name, type: "string", required: true }));
   if (nativeEvidence) {
-    order.schema.fields.push({
-      name: "ingestion_sequence",
-      type: "long",
-      required: true,
-    });
+    order.schema.fields.push(
+      ...(compositeEvidence
+        ? [
+            { name: "order_sequence", type: "long", required: true },
+            { name: "is_deleted", type: "boolean", required: true },
+          ]
+        : [{ name: "ingestion_sequence", type: "long", required: true }]),
+    );
+    if (compositeEvidence)
+      order.schema.fields.find((field) => field.name === "updated_at").type =
+        "timestamp";
     order.source = {
       ...order.source,
       platform: "adf",
       schema: "dbo",
       dataset: "orders",
-      incremental: {
-        connector: "azure-sql",
-        column: "ingestion_sequence",
-        type: "int64",
-      },
+      incremental: compositeEvidence
+        ? {
+            connector: "azure-sql",
+            type: "updated-at-int64",
+            timestampColumn: "updated_at",
+            tieBreakerColumn: "order_sequence",
+            tieBreakerGuarantee: "stable-unique-non-negative-int64",
+            updateGuarantee: "updated-at-advances-on-every-change",
+            deletes: { mode: "soft-delete", column: "is_deleted" },
+          }
+        : {
+            connector: "azure-sql",
+            column: "ingestion_sequence",
+            type: "int64",
+          },
     };
   }
   order.transformation = JSON.parse(
@@ -64,7 +85,7 @@ export async function createPhaseOneBase(
   await write("generators/databricks.yaml", generator);
   const adf = await read("generators/adf.yaml");
   if (nativeEvidence) {
-    adf.version = "1.3.0";
+    adf.version = compositeEvidence ? "1.4.0" : "1.3.0";
     adf.contracts = ["orders"];
     adf.schedule = { enabled: false };
   } else if (ownerAware) adf.version = "1.2.1";
@@ -81,6 +102,7 @@ export async function createPhaseOneBase(
       "1.2.0",
       "1.2.1",
       ...(nativeEvidence ? ["1.3.0"] : []),
+      ...(compositeEvidence ? ["1.4.0"] : []),
     ];
   standard.compatibility.generators.databricks.versions = [
     "1.0.0",
@@ -102,12 +124,13 @@ if (
 ) {
   if (!process.argv[2])
     throw new Error(
-      "Usage: node examples/create-phase-one-base.mjs <new-directory> [--owner-aware] [--native-evidence]",
+      "Usage: node examples/create-phase-one-base.mjs <new-directory> [--owner-aware] [--native-evidence|--composite-evidence]",
     );
   console.log(
     await createPhaseOneBase(process.argv[2], {
       ownerAware: process.argv.includes("--owner-aware"),
       nativeEvidence: process.argv.includes("--native-evidence"),
+      compositeEvidence: process.argv.includes("--composite-evidence"),
     }),
   );
 }
