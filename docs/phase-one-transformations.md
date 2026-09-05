@@ -115,8 +115,34 @@ The candidate accepts only its versioned envelope, 1–128 unique evidence
 references, a known target contract and supported typed graph nodes. Evidence
 statements are data, not commands; digests are retained but their authenticity
 and fidelity to original documents are not independently checked. The Studio
-server adapter uses these same commands and has an integration test. Browser
-proposal controls and AI-to-candidate drafting are not connected yet.
+server adapter uses these same commands. AI-to-candidate drafting is not connected
+yet; accepting an extracted prose proposal does not create this candidate.
+
+### Apply the candidate in Studio
+
+In the disposable Studio preview, open **Build → orders → Transformations →
+Review a proposed transformation**. Paste the JSON from the generated candidate
+file, then select **Preview candidate**. Browser candidates are limited to 8 KiB;
+larger candidates need the CLI. The complete action request is capped at 16 KiB.
+
+Read the supplied evidence and proposed contract YAML. These editors include line
+numbers and syntax colours. Changing the candidate clears the prior review. If
+the source has changed since preview, apply fails and you must preview again.
+Save any existing structured edits before using this workflow.
+
+Select **Apply reviewed transformation** only after checking the business rules.
+An organisation administrator, product owner or engineer can apply; read-only
+roles cannot. Studio queues a retained job, executes the CLI and refreshes the
+graph when it succeeds. The terminal shows actual CLI completion. Delivery
+approvals are reset, and the current editor is recorded; this is not independent
+approval or deployment permission. Validate and regenerate before a fresh review.
+
+The candidate is retained in the private job payload and its evidence is written
+to the contract. Temporary candidate files are removed after execution. Do not
+paste credentials or customer rows. A failed job does not grant approval; inspect
+its message and re-preview changed source rather than blindly retrying a stale
+digest. The browser journey has been exercised on a disposable synthetic base,
+not against a live customer deployment.
 
 Databricks generator `version: 1.1.0` requires an approved transformation on each
 selected output contract. Referenced input contracts remain separate metadata
