@@ -40,7 +40,7 @@
     "validate": "pnpm bundle:build && pnpm format:check && pnpm typecheck && pnpm test && pnpm build && pnpm release:candidate && pnpm secrets:check"
   },
   "dependencies": {
-    "yaml": "2.9.0"
+    "yaml": "2.9.1"
   },
   "devDependencies": {
     "@types/node": "26.2.0",
